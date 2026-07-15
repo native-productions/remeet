@@ -1,0 +1,36 @@
+[workspace]
+resolver = "3"
+members = ["crates/remeet-audio", "spikes/dual-capture"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+
+[workspace.dependencies]
+remeet-audio = { path = "crates/remeet-audio" }
+
+anyhow = "1"
+crossbeam-channel = "0.5"
+hound = "3.5"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+# ScreenCaptureKit bindings.
+#
+# cidre rather than the `screencapturekit` crate: the latter pulls in `apple-metal`,
+# whose Swift bridge needs the macOS 26 SDK, which needs Xcode 26, which needs
+# macOS Tahoe. cidre binds Objective-C directly — no Swift bridge, no SDK floor
+# beyond what the features below declare.
+#
+# `sc` pulls the ScreenCaptureKit surface; `macos_15_0` gates set_capture_mic, which
+# is what lets one stream emit both tracks; `async` turns the completion-handler
+# APIs (start/stop/current) into awaitable ones.
+cidre = { version = "0.16", default-features = false, features = [
+    "sc",
+    "macos_15_0",
+    "async",
+] }
+
+[profile.release]
+lto = "thin"

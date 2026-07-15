@@ -1,0 +1,4 @@
+/target
+/recordings
+*.wav
+.DS_Store

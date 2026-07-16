@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Remeet</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app" id="app">
+      <header class="topbar">
+        <span class="wordmark"><i class="mark" aria-hidden="true"></i>Remeet</span>
+      </header>
+
+      <!-- Home -->
+      <section class="view" id="home">
+        <div class="record-panel">
+          <div class="state">
+            <span class="state-label" id="stateLabel">Ready to record</span>
+            <span class="timer" id="timer" hidden>0:00</span>
+          </div>
+          <button class="record-btn" id="recordBtn" type="button">
+            <span class="btn-dot" aria-hidden="true"></span>
+            <span id="recordLabel">Record</span>
+          </button>
+        </div>
+
+        <div class="list-head">Recent</div>
+        <ul class="recordings" id="recordings"></ul>
+        <div class="empty" id="empty" hidden>
+          <p class="empty-title">No recordings yet</p>
+          <p class="empty-sub">
+            Press record to capture your first meeting. Everything stays on this Mac.
+          </p>
+        </div>
+      </section>
+
+      <!-- Transcript -->
+      <section class="view" id="transcript" hidden>
+        <div class="thead">
+          <button class="back" id="back" type="button" aria-label="Back to recordings">
+            <span aria-hidden="true">&larr;</span>
+          </button>
+          <div class="tmeta">
+            <span class="ttitle" id="tTitle">Recording</span>
+            <span class="tsub" id="tSub"></span>
+          </div>
+        </div>
+        <div class="tbody" id="tbody"></div>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

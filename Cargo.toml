@@ -5,6 +5,7 @@ members = [
     "crates/remeet-transcribe",
     "crates/remeet-todo",
     "crates/remeet-session",
+    "app/src-tauri",
     "spikes/dual-capture",
     "spikes/transcribe",
     "spikes/todo",

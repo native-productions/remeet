@@ -133,10 +133,19 @@ binary itself.
 Verified formats: system audio arrives as 48 kHz stereo, the built-in microphone as
 48 kHz mono.
 
-The track split is only as clean as your acoustic isolation. On speakers, the
-microphone also picks up the remote participants coming out of them, and the "me
-vs. them" split degrades — measured at roughly -35 dBFS of bleed in testing. On
-headphones the microphone hears only you.
+The track split is only as clean as your acoustic isolation. On headphones the
+microphone hears only you and the split is exact. On speakers, the microphone also
+picks up the remote participants, so the same speech transcribes on both tracks.
+
+`transcribe_recording` suppresses that bleed where it can: the leaked copy is
+acoustically degraded, so Whisper scores it with lower confidence than the clean
+source, and the merge drops the lower-confidence duplicate (see the `bleed` module in
+`crates/remeet-session/src/transcript.rs`). Energy was tried first and rejected: the
+leak's level tracks a fixed gain offset, not who is speaking.
+
+This has a hard limit. When speakers are loud enough that the microphone captures the
+entire call, both voices land on both tracks. That is the same audio recorded twice,
+not bleed, and no heuristic can separate it. Headphones are the fix.
 
 ## Running the transcribe spike
 

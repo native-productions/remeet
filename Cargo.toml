@@ -3,8 +3,10 @@ resolver = "3"
 members = [
     "crates/remeet-audio",
     "crates/remeet-transcribe",
+    "crates/remeet-todo",
     "spikes/dual-capture",
     "spikes/transcribe",
+    "spikes/todo",
 ]
 
 [workspace.package]
@@ -15,10 +17,13 @@ license = "MIT"
 [workspace.dependencies]
 remeet-audio = { path = "crates/remeet-audio" }
 remeet-transcribe = { path = "crates/remeet-transcribe" }
+remeet-todo = { path = "crates/remeet-todo" }
 
 anyhow = "1"
 crossbeam-channel = "0.5"
 hound = "3.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 

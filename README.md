@@ -2,8 +2,8 @@
 
 Meeting capture, transcription, and action items for macOS.
 
-Status: **spike**. Capture and transcription are proven end to end; the app around
-them is not built yet.
+Status: **spike**. Capture, transcription, and action-item extraction are proven end
+to end; the app around them is not built yet.
 
 ## Layout
 
@@ -11,10 +11,12 @@ them is not built yet.
 crates/
   remeet-audio/       Capture + WAV sink. The only crate that touches Objective-C.
   remeet-transcribe/  Whisper transcription: downmix, resample, decode to segments.
+  remeet-todo/        Action-item extraction via the local Claude CLI.
 spikes/
   dual-capture/       Throwaway: proves both meeting sides record to separate tracks.
   transcribe/         Throwaway: proves the two tracks decode into an attributed
                       "me vs. them" transcript.
+  todo/               Throwaway: proves a transcript becomes an attributed todo list.
 ```
 
 ## Pipeline
@@ -24,12 +26,15 @@ ScreenCaptureKit ─┬─ system audio (48 kHz stereo) ─┐
                   └─ microphone   (48 kHz mono)  ───┤
                                                     ├─ downmix → 16 kHz mono
                                                     ├─ Whisper (Metal GPU)
-                                                    └─ timestamped segments, per track
-                                                        merged by time → transcript
+                                                    ├─ timestamped segments, per track
+                                                    │   merged by time → transcript
+                                                    └─ Claude CLI → todos, per owner
 ```
 
 Both tracks share one capture clock, so merging the two transcripts by timestamp
-yields a readable, attributed conversation without speaker diarization.
+yields a readable, attributed conversation without speaker diarization. That
+attribution carries into the todos: because each line is tagged `me` / `them`, the
+extractor can resolve "you handle the deploy" onto the right person's list.
 
 ## Design
 
@@ -154,3 +159,38 @@ Output is the two tracks interleaved by timestamp and labelled `me` / `them`:
 On Metal this runs well faster than real time (~5–13× in testing). The same
 headphone caveat applies: bleed on the input shows up as the same line appearing on
 both tracks.
+
+## Running the todo spike
+
+Extracts action items from a transcript. Reads `[speaker] text` lines on stdin and
+prints todos grouped by owner.
+
+```sh
+cargo run -p todo < transcript.txt
+```
+
+```
+Yours:
+  - Deploy auth ke staging (due: hari ini)
+      from: "tinggal gua deploy ke staging hari ini"
+
+Theirs:
+  - Review PR #142 (due: sebelum jumat)
+      from: "eh lu bisa gak review PR gua yang #142 sebelum jumat?"
+```
+
+### How it talks to Claude
+
+`remeet-todo` shells out to the **locally installed Claude CLI** (`~/.claude`), using
+the machine's existing Claude Code login — no API key, no separate subscription. It
+runs the CLI headless (`--print --output-format json --json-schema …`), so the model
+returns schema-validated structured output rather than prose to scrape.
+
+The extractor resolves pronouns against the speaker: "you do X" is owned by the
+*other* side, and a request plus its acceptance collapse to a single todo. The
+transcript is passed as clearly delimited data, and the CLI is invoked with the
+filesystem and network tools denied — the transcript is untrusted input, so a prompt
+injection inside it can at worst skew the todo list, not run a command.
+
+Each call also pays Claude Code's own startup (a few seconds), so this is built for
+after-the-meeting extraction, not per-line streaming.

@@ -2,8 +2,9 @@
 
 Meeting capture, transcription, and action items for macOS.
 
-Status: **spike**. Capture, transcription, action-item extraction, and the
-record→transcribe orchestration are proven; the app around them is not built yet.
+Status: **spike + app**. Capture, transcription, action-item extraction, and the
+record→transcribe orchestration are proven; a menu-bar app wraps the record and
+transcribe flow.
 
 ## Layout
 
@@ -13,6 +14,9 @@ crates/
   remeet-transcribe/  Whisper transcription: downmix, resample, decode to segments.
   remeet-todo/        Action-item extraction via the local Claude CLI.
   remeet-session/     Orchestration: record a meeting to disk, transcribe it back.
+app/
+  src-tauri/          Tauri menu-bar app: tray, popover, commands over remeet-session.
+  ui/                 Static cream frontend (HTML/CSS/JS, no build step).
 spikes/
   dual-capture/       Throwaway: proves both meeting sides record to separate tracks.
   transcribe/         Throwaway: proves the two tracks decode into an attributed
@@ -223,3 +227,21 @@ to the caller.
 Capture needs the screen awake and Screen Recording permission granted to whatever
 process runs the binary (a locked or sleeping display makes ScreenCaptureKit report
 "no display available"). The `--dir` path needs neither, since it only reads files.
+
+## Running the app
+
+The menu-bar app wraps the record and transcribe flow in a cream popover. Run it from
+your own terminal (it needs your GUI session for the tray and window):
+
+```sh
+cargo run -p remeet-app
+```
+
+A tray icon appears in the menu bar; click it to open the popover. Record starts and
+stops a session; each recording lists with its length, and opening one transcribes it
+on demand. Recordings are stored under `~/Remeet/recordings`, and the app expects the
+Whisper model at `~/whisper/models/ggml-large-v3-turbo.bin`.
+
+Design context is in `PRODUCT.md` and `DESIGN.md`; the UI is a light-committed cream
+system (OKLCH tokens, clay accent, a coral live state that is the only thing that
+pulses). It is a menu-bar utility, so it runs with no dock icon.

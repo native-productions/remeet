@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/remeet-audio", "spikes/dual-capture"]
+members = [
+    "crates/remeet-audio",
+    "crates/remeet-transcribe",
+    "spikes/dual-capture",
+    "spikes/transcribe",
+]
 
 [workspace.package]
 edition = "2024"
@@ -9,12 +14,23 @@ license = "MIT"
 
 [workspace.dependencies]
 remeet-audio = { path = "crates/remeet-audio" }
+remeet-transcribe = { path = "crates/remeet-transcribe" }
 
 anyhow = "1"
 crossbeam-channel = "0.5"
 hound = "3.5"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+# Whisper transcription. `metal` compiles whisper.cpp with the Metal backend, so
+# inference runs on the M-series GPU. whisper.cpp is vendored and built by the
+# crate — cmake (present) is the only external requirement.
+whisper-rs = { version = "0.16", default-features = false, features = ["metal"] }
+
+# Sample-rate conversion. Pinned to the 0.16 line rather than 4.0: 4.0 routes all
+# I/O through the new `audioadapter` traits, whereas 0.16 takes plain `Vec<Vec<f32>>`,
+# which is all this needs. 48 kHz capture -> 16 kHz mono for Whisper.
+rubato = "0.16"
 
 # ScreenCaptureKit bindings.
 #

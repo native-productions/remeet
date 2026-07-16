@@ -1,0 +1,11 @@
+[package]
+name = "remeet-transcribe"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+whisper-rs.workspace = true
+rubato.workspace = true
+thiserror.workspace = true

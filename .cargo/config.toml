@@ -1,0 +1,5 @@
+# whisper.cpp's Metal backend calls into Apple's Accelerate framework and links
+# against the C++ standard library. Cargo does not infer these, so they are declared
+# here for every build in the workspace.
+[target.aarch64-apple-darwin]
+rustflags = ["-lc++", "-l", "framework=Accelerate"]

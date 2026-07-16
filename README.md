@@ -2,16 +2,34 @@
 
 Meeting capture, transcription, and action items for macOS.
 
-Status: **spike**. Audio capture is proven; nothing else is built yet.
+Status: **spike**. Capture and transcription are proven end to end; the app around
+them is not built yet.
 
 ## Layout
 
 ```
 crates/
-  remeet-audio/      Capture + WAV sink. The only crate that touches Objective-C.
+  remeet-audio/       Capture + WAV sink. The only crate that touches Objective-C.
+  remeet-transcribe/  Whisper transcription: downmix, resample, decode to segments.
 spikes/
-  dual-capture/      Throwaway: proves both meeting sides record to separate tracks.
+  dual-capture/       Throwaway: proves both meeting sides record to separate tracks.
+  transcribe/         Throwaway: proves the two tracks decode into an attributed
+                      "me vs. them" transcript.
 ```
+
+## Pipeline
+
+```
+ScreenCaptureKit ─┬─ system audio (48 kHz stereo) ─┐
+                  └─ microphone   (48 kHz mono)  ───┤
+                                                    ├─ downmix → 16 kHz mono
+                                                    ├─ Whisper (Metal GPU)
+                                                    └─ timestamped segments, per track
+                                                        merged by time → transcript
+```
+
+Both tracks share one capture clock, so merging the two transcripts by timestamp
+yields a readable, attributed conversation without speaker diarization.
 
 ## Design
 
@@ -34,13 +52,32 @@ second API (`cpal`, say) would introduce a second clock and drift to correct for
 
 ## Building
 
-Requires the Rust toolchain pinned in `rust-toolchain.toml`. No other setup —
-`cidre` binds Objective-C directly, so there is no Swift bridge and no Xcode
-version floor beyond the macOS 15 SDK.
+Requires the Rust toolchain pinned in `rust-toolchain.toml`, plus a **native
+`cmake`** (whisper.cpp is built from source — see the caveat below).
 
 ```sh
 cargo build
 cargo test
+```
+
+`cidre` binds Objective-C directly, so there is no Swift bridge and no Xcode floor
+beyond the macOS 15 SDK.
+
+### cmake must match the CPU architecture
+
+whisper.cpp is compiled by `whisper-rs-sys` via cmake. On Apple Silicon, an **x86_64
+cmake** (e.g. from an Intel Homebrew under `/usr/local`, running through Rosetta)
+reports `CMAKE_SYSTEM_PROCESSOR: x86_64`, and the build dies with
+`clang: error: unsupported argument 'native' to option '-mcpu='` — an Arm compiler
+fed an x86 config.
+
+Use an `arm64` cmake ahead of it on `PATH`. Any native build works; one that avoids
+touching an existing Intel Homebrew is a pip install into a throwaway venv:
+
+```sh
+python3 -m venv ~/.local/share/remeet-tools/venv     # use an arm64 python
+~/.local/share/remeet-tools/venv/bin/pip install cmake
+ln -sf ~/.local/share/remeet-tools/venv/bin/cmake ~/.local/bin/cmake  # ~/.local/bin on PATH
 ```
 
 ### Why cidre and not the `screencapturekit` crate
@@ -89,3 +126,31 @@ The track split is only as clean as your acoustic isolation. On speakers, the
 microphone also picks up the remote participants coming out of them, and the "me
 vs. them" split degrades — measured at roughly -35 dBFS of bleed in testing. On
 headphones the microphone hears only you.
+
+## Running the transcribe spike
+
+Transcribes the two WAVs from the capture spike into one merged transcript. Needs a
+GGML Whisper model; the path is the sole argument.
+
+```sh
+# Download a model once (~1.5 GB):
+curl -L -o models/ggml-large-v3-turbo.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+
+cargo run --release -p transcribe -- models/ggml-large-v3-turbo.bin
+```
+
+Note the model is **GGML** (`.bin`), not the PyTorch `.pt` that the Python
+`openai-whisper` uses — whisper.cpp needs its own format. Language is auto-detected,
+so a meeting that switches between languages is fine.
+
+Output is the two tracks interleaved by timestamp and labelled `me` / `them`:
+
+```
+[ 0:14.0 -  0:16.2] them: can you ship the deploy this week?
+[ 0:16.5 -  0:19.1] me:   I'll take the deploy, you handle the migration
+```
+
+On Metal this runs well faster than real time (~5–13× in testing). The same
+headphone caveat applies: bleed on the input shows up as the same line appearing on
+both tracks.

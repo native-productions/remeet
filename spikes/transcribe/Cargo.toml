@@ -1,0 +1,13 @@
+[package]
+name = "transcribe"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+remeet-transcribe.workspace = true
+
+anyhow.workspace = true
+hound.workspace = true

@@ -1,4 +1,6 @@
 /target
 /recordings
+/models
 *.wav
+*.bin
 .DS_Store

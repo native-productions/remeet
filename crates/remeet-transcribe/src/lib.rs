@@ -88,7 +88,14 @@ impl Transcriber {
     ) -> Result<Vec<Segment>> {
         let audio = prepare_for_whisper(samples, channels, sample_rate)?;
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        // Beam search over greedy: it explores several hypotheses per step and picks
+        // the best overall, which meaningfully lifts accuracy on accented and
+        // non-English speech. The cost is decode time, acceptable for after-the-meeting
+        // transcription. `patience = -1.0` uses whisper.cpp's default.
+        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
+            beam_size: 5,
+            patience: -1.0,
+        });
         params.set_language(language);
         // whisper.cpp otherwise prints every segment to stdout as it decodes; this
         // crate returns them instead.

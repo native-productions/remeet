@@ -20,6 +20,8 @@ pub struct AppState {
     session: Mutex<Option<Active>>,
     root: PathBuf,
     model_path: PathBuf,
+    /// Transcription language as an ISO code, or `None` to auto-detect.
+    language: Option<String>,
 }
 
 /// The in-progress recording, if any.
@@ -29,17 +31,31 @@ struct Active {
 }
 
 impl AppState {
-    /// Builds state with the default store (`~/Remeet/recordings`) and model
-    /// (`~/whisper/models/ggml-large-v3-turbo.bin`).
+    /// Builds state with the default store (`~/Remeet/recordings`) and the full
+    /// `large-v3` model, which transcribes non-English speech far more accurately
+    /// than the distilled `turbo` variant.
+    ///
+    /// Both are overridable: `REMEET_MODEL` points at a different GGML model, and
+    /// `REMEET_LANG` forces a language (e.g. `id`) instead of auto-detection.
     pub fn new() -> Self {
         let home = home_dir();
+        let model_path = std::env::var_os("REMEET_MODEL")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                home.join("whisper")
+                    .join("models")
+                    .join("ggml-large-v3.bin")
+            });
+
+        let language = std::env::var("REMEET_LANG")
+            .ok()
+            .filter(|s| !s.trim().is_empty());
+
         Self {
             session: Mutex::new(None),
             root: home.join("Remeet").join("recordings"),
-            model_path: home
-                .join("whisper")
-                .join("models")
-                .join("ggml-large-v3-turbo.bin"),
+            model_path,
+            language,
         }
     }
 }
@@ -123,6 +139,7 @@ pub async fn get_transcript(
 pub async fn transcribe(state: State<'_, AppState>, id: String) -> Result<Vec<LineDto>, String> {
     let dir = state.root.join(sanitize(&id)?);
     let model_path = state.model_path.clone();
+    let language = state.language.clone();
 
     if !model_path.exists() {
         return Err(format!("model not found at {}", model_path.display()));
@@ -133,8 +150,8 @@ pub async fn transcribe(state: State<'_, AppState>, id: String) -> Result<Vec<Li
     tokio::task::spawn_blocking(move || {
         let recording = Recording::from_dir(&dir).map_err(|e| e.to_string())?;
         let transcriber = Transcriber::load(&model_path).map_err(|e| e.to_string())?;
-        let transcript =
-            transcribe_recording(&transcriber, &recording, None).map_err(|e| e.to_string())?;
+        let transcript = transcribe_recording(&transcriber, &recording, language.as_deref())
+            .map_err(|e| e.to_string())?;
 
         store::save_transcript(&dir, &transcript).map_err(|e| e.to_string())?;
         Ok(store::to_dtos(&transcript))

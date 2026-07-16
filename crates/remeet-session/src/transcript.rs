@@ -31,9 +31,9 @@ mod bleed {
     /// other with different words are never collapsed.
     pub const TEXT_SIMILARITY: f32 = 0.4;
 
-    /// The leaked copy's confidence must be at least this much below the source's.
-    /// A small margin avoids dropping either of two equally clean, coincidentally
-    /// similar segments.
+    /// How far apart two confidences must be to decide the leak on confidence alone.
+    /// Within this margin the two copies are treated as equally clear, and the tie is
+    /// broken by completeness (see `is_leak_of`).
     pub const CONFIDENCE_MARGIN: f32 = 0.02;
 }
 
@@ -194,11 +194,39 @@ fn suppress_bleed(candidates: Vec<Candidate>) -> Vec<TranscriptLine> {
     lines
 }
 
-/// Whether `echo` is a leaked copy of `source`.
+/// Whether `echo` is a leaked copy of `source` that should be dropped in its favour.
+///
+/// The two must overlap in time and read as the same words. Which of the pair is the
+/// leak is then decided by confidence; when the two are within the confidence margin
+/// (a clean speaker environment leaves both copies clear), the shorter one wins the
+/// tie as the truncated echo, and an exact tie falls to a fixed side so the pair never
+/// drops both or neither.
 fn is_leak_of(echo: &Candidate, source: &Candidate) -> bool {
-    overlap_fraction(echo, source) >= bleed::OVERLAP_MIN
-        && text_similarity(&echo.text, &source.text) >= bleed::TEXT_SIMILARITY
-        && echo.confidence < source.confidence - bleed::CONFIDENCE_MARGIN
+    if overlap_fraction(echo, source) < bleed::OVERLAP_MIN
+        || text_similarity(&echo.text, &source.text) < bleed::TEXT_SIMILARITY
+    {
+        return false;
+    }
+
+    let confidence_gap = source.confidence - echo.confidence;
+    if confidence_gap > bleed::CONFIDENCE_MARGIN {
+        return true; // echo is clearly less confident
+    }
+    if confidence_gap < -bleed::CONFIDENCE_MARGIN {
+        return false; // echo is clearly more confident; source is the leak
+    }
+
+    // Confidences tie: prefer the more complete transcription, then a fixed side.
+    let (echo_words, source_words) = (word_count(&echo.text), word_count(&source.text));
+    if echo_words != source_words {
+        echo_words < source_words
+    } else {
+        echo.speaker == Speaker::Me
+    }
+}
+
+fn word_count(text: &str) -> usize {
+    text.split_whitespace().count()
 }
 
 /// Fraction of the shorter segment that overlaps the other in time.
@@ -336,17 +364,48 @@ mod tests {
     }
 
     #[test]
-    fn keeps_both_when_confidence_is_close() {
-        // Two people genuinely talking over each other: overlapping, similar-ish, but
-        // both heard clearly, so neither is an echo of the other.
+    fn breaks_confidence_tie_by_dropping_the_shorter_copy() {
+        // The reported case: the same utterance on both tracks at the same moment, one
+        // a truncated copy of the other, confidences too close to separate. The
+        // shorter copy is the echo, so it is dropped and the fuller line survives.
+        let full = candidate(
+            Speaker::Them,
+            0,
+            6_000,
+            0.83,
+            "pasti sih si Hermes juga by default dia pakai ini tak whisper",
+        );
+        let truncated = candidate(
+            Speaker::Me,
+            0,
+            5_000,
+            0.82,
+            "pasti sih si Hermes juga by default dia pakai ini",
+        );
+
+        let lines = suppress_bleed(vec![full, truncated]);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].speaker, Speaker::Them);
+    }
+
+    #[test]
+    fn keeps_overlapping_speech_with_different_words() {
+        // Two people genuinely talking over each other say different things, so the
+        // texts are not similar and both lines survive.
         let a = candidate(
             Speaker::Them,
             20_000,
             26_000,
             0.88,
-            "the deploy is ready to go now",
+            "so when can we ship the migration",
         );
-        let b = candidate(Speaker::Me, 21_000, 25_000, 0.87, "the deploy is ready");
+        let b = candidate(
+            Speaker::Me,
+            21_000,
+            25_000,
+            0.85,
+            "i think friday works for the deploy",
+        );
 
         assert_eq!(suppress_bleed(vec![a, b]).len(), 2);
     }

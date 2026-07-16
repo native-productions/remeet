@@ -4,9 +4,11 @@ members = [
     "crates/remeet-audio",
     "crates/remeet-transcribe",
     "crates/remeet-todo",
+    "crates/remeet-session",
     "spikes/dual-capture",
     "spikes/transcribe",
     "spikes/todo",
+    "spikes/session",
 ]
 
 [workspace.package]
@@ -18,6 +20,7 @@ license = "MIT"
 remeet-audio = { path = "crates/remeet-audio" }
 remeet-transcribe = { path = "crates/remeet-transcribe" }
 remeet-todo = { path = "crates/remeet-todo" }
+remeet-session = { path = "crates/remeet-session" }
 
 anyhow = "1"
 crossbeam-channel = "0.5"

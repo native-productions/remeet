@@ -1,0 +1,15 @@
+[package]
+name = "remeet-session"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+remeet-audio.workspace = true
+remeet-transcribe.workspace = true
+
+crossbeam-channel.workspace = true
+hound.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true }

@@ -2,8 +2,8 @@
 
 Meeting capture, transcription, and action items for macOS.
 
-Status: **spike**. Capture, transcription, and action-item extraction are proven end
-to end; the app around them is not built yet.
+Status: **spike**. Capture, transcription, action-item extraction, and the
+record→transcribe orchestration are proven; the app around them is not built yet.
 
 ## Layout
 
@@ -12,11 +12,13 @@ crates/
   remeet-audio/       Capture + WAV sink. The only crate that touches Objective-C.
   remeet-transcribe/  Whisper transcription: downmix, resample, decode to segments.
   remeet-todo/        Action-item extraction via the local Claude CLI.
+  remeet-session/     Orchestration: record a meeting to disk, transcribe it back.
 spikes/
   dual-capture/       Throwaway: proves both meeting sides record to separate tracks.
   transcribe/         Throwaway: proves the two tracks decode into an attributed
                       "me vs. them" transcript.
   todo/               Throwaway: proves a transcript becomes an attributed todo list.
+  session/            Throwaway: proves the record -> transcribe flow end to end.
 ```
 
 ## Pipeline
@@ -194,3 +196,30 @@ injection inside it can at worst skew the todo list, not run a command.
 
 Each call also pays Claude Code's own startup (a few seconds), so this is built for
 after-the-meeting extraction, not per-line streaming.
+
+## Running the session spike
+
+Ties capture and transcription together: record a meeting to disk, then transcribe
+it into a saved transcript. Record and transcribe are separate steps — the WAV files
+are the hand-off — so a recording can also be reopened and transcribed later.
+
+```sh
+# record until Enter, then transcribe:
+cargo run --release -p session -- models/ggml-large-v3-turbo.bin
+
+# record a fixed number of seconds (for scripted runs):
+cargo run --release -p session -- models/ggml-large-v3-turbo.bin 30
+
+# skip capture and transcribe a recording captured earlier:
+cargo run --release -p session -- models/ggml-large-v3-turbo.bin --dir recordings/session-…
+```
+
+The transcript is written to `<recording-dir>/transcript.txt` next to the audio.
+
+Todo extraction is deliberately *not* part of this flow — recording and transcript
+are the deliverables, and wiring them into `remeet-todo` (or anything else) is left
+to the caller.
+
+Capture needs the screen awake and Screen Recording permission granted to whatever
+process runs the binary (a locked or sleeping display makes ScreenCaptureKit report
+"no display available"). The `--dir` path needs neither, since it only reads files.

@@ -385,6 +385,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "remeet-session"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "hound",
+ "remeet-audio",
+ "remeet-transcribe",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "remeet-todo"
 version = "0.1.0"
 dependencies = [
@@ -487,6 +499,16 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "session"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "remeet-session",
+ "remeet-transcribe",
+ "tokio",
 ]
 
 [[package]]

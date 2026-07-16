@@ -28,7 +28,9 @@ mod error;
 use std::path::Path;
 use std::time::Duration;
 
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperSegment,
+};
 
 pub use audio::{WHISPER_SAMPLE_RATE, downmix_to_mono, prepare_for_whisper};
 pub use error::{Result, TranscribeError};
@@ -41,6 +43,10 @@ pub struct Segment {
     /// Offset from the start of the audio to the end of this span.
     pub end: Duration,
     pub text: String,
+    /// Mean token probability over the segment, in `[0, 1]`. A proxy for how clearly
+    /// the model heard this span: clean speech scores high, degraded audio (an
+    /// acoustic echo bleeding across tracks, say) scores lower.
+    pub confidence: f32,
 }
 
 /// A loaded Whisper model, ready to transcribe.
@@ -104,11 +110,27 @@ impl Transcriber {
                 start: centiseconds(segment.start_timestamp()),
                 end: centiseconds(segment.end_timestamp()),
                 text: segment.to_str_lossy()?.into_owned(),
+                confidence: mean_token_confidence(&segment),
             });
         }
 
         Ok(segments)
     }
+}
+
+/// Averages a segment's per-token probabilities. Empty segments score 0.
+fn mean_token_confidence(segment: &WhisperSegment<'_>) -> f32 {
+    let count = segment.n_tokens();
+    if count <= 0 {
+        return 0.0;
+    }
+
+    let sum: f32 = (0..count)
+        .filter_map(|t| segment.get_token(t))
+        .map(|token| token.token_probability())
+        .sum();
+
+    sum / count as f32
 }
 
 /// Whisper reports timestamps in centiseconds (hundredths of a second).

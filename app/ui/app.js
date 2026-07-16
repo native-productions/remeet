@@ -17,6 +17,7 @@ const el = {
   recordings: document.getElementById("recordings"),
   empty: document.getElementById("empty"),
   back: document.getElementById("back"),
+  redo: document.getElementById("redo"),
   tTitle: document.getElementById("tTitle"),
   tSub: document.getElementById("tSub"),
   tbody: document.getElementById("tbody"),
@@ -24,6 +25,7 @@ const el = {
 
 let recording = false;
 let busy = false;
+let currentRec = null;
 
 // Formatting ---------------------------------------------------------------
 
@@ -172,9 +174,11 @@ function row(rec) {
 // Transcript ---------------------------------------------------------------
 
 async function openTranscript(rec) {
+  currentRec = rec;
   el.tTitle.textContent = duration(rec.duration_secs);
   el.tSub.textContent = relativeTime(rec.created);
   el.tbody.innerHTML = "";
+  el.redo.hidden = true;
   showTranscript();
 
   let lines = null;
@@ -186,9 +190,23 @@ async function openTranscript(rec) {
 
   if (lines && lines.length) {
     renderLines(lines);
+    el.redo.hidden = false;
   } else {
     renderTranscribeCta(rec);
   }
+}
+
+// Re-runs transcription over the same audio, replacing the cached transcript.
+// Lets a recording pick up transcription changes (e.g. bleed suppression).
+async function reTranscribe() {
+  if (!currentRec) return;
+  el.redo.hidden = true;
+  el.tbody.innerHTML = "";
+  const cta = document.createElement("div");
+  cta.className = "cta";
+  el.tbody.appendChild(cta);
+  await runTranscribe(currentRec, cta);
+  if (currentRec) el.redo.hidden = false;
 }
 
 function renderLines(lines) {
@@ -267,6 +285,7 @@ el.tabRecord.addEventListener("click", () => showTab("record"));
 el.tabLibrary.addEventListener("click", () => showTab("library"));
 el.recBtn.addEventListener("click", toggleRecording);
 el.back.addEventListener("click", () => showTab("library"));
+el.redo.addEventListener("click", reTranscribe);
 
 showTab("record");
 refreshStatus();

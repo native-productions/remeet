@@ -397,6 +397,31 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
+}
+
+.redo {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-soft);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  padding: 5px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.redo:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.redo:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
 }
 
 .ttitle {

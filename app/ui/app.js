@@ -4,12 +4,16 @@ const invoke = window.__TAURI__.core.invoke;
 
 const el = {
   app: document.getElementById("app"),
-  home: document.getElementById("home"),
+  tabs: document.getElementById("tabs"),
+  tabRecord: document.getElementById("tabRecord"),
+  tabLibrary: document.getElementById("tabLibrary"),
+  record: document.getElementById("record"),
+  library: document.getElementById("library"),
   transcript: document.getElementById("transcript"),
-  stateLabel: document.getElementById("stateLabel"),
-  timer: document.getElementById("timer"),
-  recordBtn: document.getElementById("recordBtn"),
-  recordLabel: document.getElementById("recordLabel"),
+  thead: document.getElementById("thead"),
+  recBtn: document.getElementById("recBtn"),
+  recState: document.getElementById("recState"),
+  recTimer: document.getElementById("recTimer"),
   recordings: document.getElementById("recordings"),
   empty: document.getElementById("empty"),
   back: document.getElementById("back"),
@@ -37,6 +41,32 @@ function relativeTime(unixSecs) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+// Navigation ---------------------------------------------------------------
+
+function showTab(name) {
+  el.tabs.hidden = false;
+  el.thead.hidden = true;
+  el.transcript.hidden = true;
+  el.record.hidden = name !== "record";
+  el.library.hidden = name !== "library";
+
+  const isRecord = name === "record";
+  el.tabRecord.classList.toggle("is-active", isRecord);
+  el.tabLibrary.classList.toggle("is-active", !isRecord);
+  el.tabRecord.setAttribute("aria-selected", String(isRecord));
+  el.tabLibrary.setAttribute("aria-selected", String(!isRecord));
+
+  if (name === "library") refreshList();
+}
+
+function showTranscript() {
+  el.tabs.hidden = true;
+  el.record.hidden = true;
+  el.library.hidden = true;
+  el.thead.hidden = false;
+  el.transcript.hidden = false;
+}
+
 // Status + recording -------------------------------------------------------
 
 async function refreshStatus() {
@@ -51,40 +81,40 @@ async function refreshStatus() {
 function setRecording(isRecording, elapsedSecs) {
   recording = isRecording;
   el.app.classList.toggle("is-recording", isRecording);
-  el.recordLabel.textContent = isRecording ? "Stop" : "Record";
+  el.recBtn.setAttribute("aria-label", isRecording ? "Stop recording" : "Start recording");
 
   if (isRecording) {
-    el.stateLabel.textContent = "Recording";
-    el.timer.hidden = false;
-    el.timer.textContent = duration(elapsedSecs);
+    el.recState.textContent = "Recording";
+    el.recTimer.hidden = false;
+    el.recTimer.textContent = duration(elapsedSecs);
   } else {
-    el.stateLabel.textContent = "Ready to record";
-    el.timer.hidden = true;
+    el.recState.textContent = "Ready to record";
+    el.recTimer.hidden = true;
   }
 }
 
 async function toggleRecording() {
   if (busy) return;
   busy = true;
-  el.recordBtn.disabled = true;
+  el.recBtn.disabled = true;
   try {
     if (recording) {
       await invoke("stop_recording");
       setRecording(false, 0);
-      await refreshList();
+      showTab("library");
     } else {
       await invoke("start_recording");
       setRecording(true, 0);
     }
   } catch (e) {
-    el.stateLabel.textContent = String(e);
+    el.recState.textContent = String(e);
   } finally {
     busy = false;
-    el.recordBtn.disabled = false;
+    el.recBtn.disabled = false;
   }
 }
 
-// Recordings list ----------------------------------------------------------
+// Library ------------------------------------------------------------------
 
 async function refreshList() {
   let recordings = [];
@@ -95,6 +125,7 @@ async function refreshList() {
   }
 
   el.recordings.innerHTML = "";
+  el.recordings.hidden = recordings.length === 0;
   el.empty.hidden = recordings.length > 0;
 
   for (const rec of recordings) {
@@ -138,18 +169,13 @@ function row(rec) {
   return li;
 }
 
-// Transcript view ----------------------------------------------------------
-
-function showView(name) {
-  el.home.hidden = name !== "home";
-  el.transcript.hidden = name !== "transcript";
-}
+// Transcript ---------------------------------------------------------------
 
 async function openTranscript(rec) {
   el.tTitle.textContent = duration(rec.duration_secs);
   el.tSub.textContent = relativeTime(rec.created);
   el.tbody.innerHTML = "";
-  showView("transcript");
+  showTranscript();
 
   let lines = null;
   try {
@@ -215,13 +241,12 @@ async function runTranscribe(rec, cta) {
   cta.innerHTML = "";
   const working = document.createElement("div");
   working.className = "working";
-  working.innerHTML = '<span class="btn-dot"></span>Transcribing on this Mac';
+  working.innerHTML = '<span class="spin"></span>Transcribing on this Mac';
   cta.appendChild(working);
 
   try {
     const lines = await invoke("transcribe", { id: rec.id });
     renderLines(lines);
-    refreshList();
   } catch (e) {
     cta.innerHTML = "";
     const err = document.createElement("p");
@@ -238,12 +263,12 @@ async function runTranscribe(rec, cta) {
 
 // Wiring -------------------------------------------------------------------
 
-el.recordBtn.addEventListener("click", toggleRecording);
-el.back.addEventListener("click", () => {
-  showView("home");
-  refreshList();
-});
+el.tabRecord.addEventListener("click", () => showTab("record"));
+el.tabLibrary.addEventListener("click", () => showTab("library"));
+el.recBtn.addEventListener("click", toggleRecording);
+el.back.addEventListener("click", () => showTab("library"));
 
+showTab("record");
 refreshStatus();
 refreshList();
 setInterval(refreshStatus, 1000);

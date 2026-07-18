@@ -6,6 +6,18 @@ Status: **spike + app**. Capture, transcription, action-item extraction, and the
 record→transcribe orchestration are proven; a menu-bar app wraps the record and
 transcribe flow.
 
+## Demo
+<img width="1149" height="892" alt="image" src="https://github.com/user-attachments/assets/6e184fb1-330e-41fa-92ab-6ebd05a020c8" />
+<img width="467" height="512" alt="image" src="https://github.com/user-attachments/assets/fb242f6c-2cda-4ecb-a131-6f5e979bfffe" />
+<img width="465" height="295" alt="image" src="https://github.com/user-attachments/assets/a4e3d0c1-f520-4caa-8b4c-f5a0e3271d68" />
+<img width="1152" height="892" alt="image" src="https://github.com/user-attachments/assets/0d780044-1655-4ba4-921d-54e945c575b7" />
+<img width="1150" height="893" alt="image" src="https://github.com/user-attachments/assets/fa955ab8-dc7c-4c63-9032-bfb546259fe5" />
+<img width="563" height="544" alt="image" src="https://github.com/user-attachments/assets/cf095a9a-0148-4d5f-bf18-b44f4af9ed3d" />
+
+
+
+
+
 ## Layout
 
 ```

@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/remeet-audio",
     "crates/remeet-transcribe",
+    "crates/remeet-ai",
     "crates/remeet-todo",
     "crates/remeet-session",
     "app/src-tauri",
@@ -20,6 +21,7 @@ license = "MIT"
 [workspace.dependencies]
 remeet-audio = { path = "crates/remeet-audio" }
 remeet-transcribe = { path = "crates/remeet-transcribe" }
+remeet-ai = { path = "crates/remeet-ai" }
 remeet-todo = { path = "crates/remeet-todo" }
 remeet-session = { path = "crates/remeet-session" }
 
@@ -28,6 +30,7 @@ crossbeam-channel = "0.5"
 hound = "3.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 

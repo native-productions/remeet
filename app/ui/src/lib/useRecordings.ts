@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { api, type Recording } from "./api";
 
@@ -22,6 +23,18 @@ export function useRecordings() {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  // Same reason the spaces list refreshes on focus: a window that is only hidden
+  // would otherwise show whatever it last fetched, however old that is. Recordings
+  // also appear from outside the app entirely, when a session finishes.
+  useEffect(() => {
+    const unfocus = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) void refresh();
+    });
+    return () => {
+      void unfocus.then((off) => off());
+    };
   }, [refresh]);
 
   return { recordings, loaded, refresh };

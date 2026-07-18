@@ -44,10 +44,24 @@ because `devUrl` points there. Use `bun run app` for the normal dev loop.
 ## Layout
 
 ```
-crates/           Rust core: audio capture, transcription, todo extraction, session
-app/src-tauri/    Tauri shell: windows, tray, commands over the core
+crates/           Rust core: audio capture, transcription, AI providers, session
+app/src-tauri/    Tauri shell: windows, tray, settings, commands over the core
 app/ui/           React frontend (Vite + TS), one bundle for both windows
 ```
+
+## AI providers
+
+`remeet-ai` wraps the local Claude Code and Codex CLIs behind one `Provider` trait.
+Anything that needs a language model goes through it — do not shell out to a CLI
+from anywhere else. Provider choice, model, and binary path live in
+`settings.json` under the app config directory.
+
+Two constraints that shape the design:
+
+- Every invocation re-pays the CLI's own startup context (~47k tokens for Claude
+  Code, ~18k for Codex). Batch per meeting; cache results to disk.
+- Models are free text, never a hardcoded menu — allowed models depend on the
+  account behind the CLI.
 
 ## Two windows, one bundle
 
@@ -59,6 +73,12 @@ app/ui/           React frontend (Vite + TS), one bundle for both windows
 Keep the popover small. If a feature would make it slower to answer "am I
 recording?", it belongs in the main window.
 
+**The popover is hidden, never closed.** Its webview lives for as long as the app
+does, so a component that fetches on mount fetches exactly once per app launch and
+then goes stale forever. Anything shared between the two windows needs a push
+(`emit` from Rust, `listen` in the hook) or a pull on focus
+(`getCurrentWindow().onFocusChanged`). See `useSpaces` and `useRecordings`.
+
 ## Conventions
 
 - **IPC goes through `src/lib/api.ts`.** Every command wrapper and its types are
@@ -67,6 +87,11 @@ recording?", it belongs in the main window.
   state the backend can own, and it will not own SQL when the database lands.
 - **Audio is filesystem, never database.** Recordings are directories under
   `~/Remeet/recordings`; the store keeps paths, not blobs.
+- **Per-recording state lives with the recording.** Transcript, summary, mixdown,
+  and space membership are all files inside the recording's own directory. Anything
+  central would have to be reconciled against the disk on every launch; this cannot
+  drift. Config-level state (settings, the list of spaces) goes in the app config
+  directory as JSON.
 - **Transcripts are untrusted input.** Anything piped to an AI CLI keeps tool access
   denied — a transcript can contain text engineered to look like an instruction.
 - **Comments explain why, not what.** Match the density already in the file.

@@ -11,6 +11,8 @@
 //! icon or app menu behaves like a bug.
 
 mod commands;
+mod settings;
+mod spaces;
 mod store;
 
 use tauri::image::Image;
@@ -28,7 +30,6 @@ const MAIN: &str = "main";
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_positioner::init())
-        .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
             commands::list_recordings,
@@ -39,8 +40,29 @@ pub fn run() {
             commands::prepare_audio,
             commands::delete_recording,
             commands::open_main_window,
+            commands::get_settings,
+            commands::save_settings,
+            commands::settings_path,
+            commands::probe_provider,
+            commands::test_provider,
+            commands::get_summary,
+            commands::summarize,
+            commands::list_spaces,
+            commands::create_space,
+            commands::rename_space,
+            commands::delete_space,
+            commands::set_active_space,
+            commands::move_recording,
         ])
         .setup(|app| {
+            // State is built here rather than in the builder chain because the app
+            // config directory is only resolvable from a handle.
+            let config_dir = app
+                .path()
+                .app_config_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            app.manage(AppState::new(config_dir));
+
             // Idles as a menu-bar utility: no dock icon, no app-switcher presence.
             #[cfg(target_os = "macos")]
             app.handle()

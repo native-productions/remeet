@@ -4,6 +4,27 @@ export function duration(secs: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/**
+ * The name a recording carries inside a space.
+ *
+ * A folder is named for when it was recorded, because that is what the user
+ * remembers about a call. The directory on disk keeps its stable `session-<unix>`
+ * id: renaming real folders to match a label would break every id already saved in
+ * a transcript, a summary, or a settings file.
+ */
+export function folderName(unixSecs: number): string {
+  if (!unixSecs) return "Recording";
+  const date = new Date(unixSecs * 1000);
+  const stamp = new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+  return `Recording - ${stamp}`;
+}
+
 /** Coarse "how long ago", enough for a list; exact times live in the transcript. */
 export function relativeTime(unixSecs: number): string {
   if (!unixSecs) return "";

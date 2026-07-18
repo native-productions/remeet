@@ -12,6 +12,7 @@ transcribe flow.
 crates/
   remeet-audio/       Capture + WAV sink. The only crate that touches Objective-C.
   remeet-transcribe/  Whisper transcription: downmix, resample, decode to segments.
+  remeet-ai/          Local AI CLIs (Claude Code, Codex) behind one Provider trait.
   remeet-todo/        Action-item extraction via the local Claude CLI.
   remeet-session/     Orchestration: record a meeting to disk, transcribe it back.
 app/
@@ -272,6 +273,62 @@ regular app while the main window is open, so it can be cmd-tabbed back to.
 Deleting a recording from the library removes its whole directory under
 `~/Remeet/recordings` — both track WAVs, the mixdown, and the transcript. There is no
 trash and no undo, so the row asks for confirmation in place first.
+
+### Spaces
+
+Recordings are filed into spaces: pick one in the popover before recording, browse
+them as folders in the main window. "Default Space" is where anything unfiled lands,
+including every recording made before spaces existed.
+
+Membership is stored **inside each recording's directory**, as `meta.json`, not in a
+central index. The disk is the source of truth for audio: a recording can be moved,
+copied, or deleted in Finder, and the app has to agree with what it finds. A central
+index would need reconciling on every launch, and its failure mode is a list claiming
+recordings that are not there. Keeping the filing beside the audio makes that
+impossible, and deleting a space cannot touch a recording.
+
+The list of spaces itself is `spaces.json` in the app config directory. No database:
+filing a few dozen recordings into a few spaces is a directory walk, not a query. That
+changes when there is something a walk cannot answer, such as full-text search across
+transcripts.
+
+Folder names shown in a space (`Recording - 18 Jul 2026, 14:22`) are labels. The
+directory keeps its stable `session-<unix>` id, because that id is already referenced
+by saved transcripts, summaries, and settings.
+
+### AI providers
+
+Summaries (and, later, action items) run through an AI CLI that is already installed
+and logged in on the machine — **Claude Code** or **Codex**, picked in Settings. No
+API key and no second subscription; audio never reaches them, only transcript text
+the user asked to process.
+
+Both are driven with a JSON schema, so the answer comes back validated rather than
+scraped out of prose. Almost everything else differs, and `remeet-ai` absorbs it:
+
+|             | Claude Code                   | Codex                     |
+|-------------|-------------------------------|---------------------------|
+| Invocation  | `claude --print`              | `codex exec`              |
+| Schema      | inline `--json-schema`        | a file, `--output-schema` |
+| Result      | `structured_output` on stdout | a file, `-o`              |
+| Tool limits | `--disallowedTools`           | `--sandbox read-only`     |
+
+Two things worth knowing before building on this:
+
+- **Every call re-pays the CLI's startup context** — measured at ~47k input tokens
+  for Claude Code and ~18k for Codex on a two-token prompt. Process once per meeting,
+  never per line. Summaries are cached to `summary.json` next to the audio for the
+  same reason.
+- **Codex is less contained than Claude Code.** There is no flag to deny its tools,
+  so the containment is `--sandbox read-only` plus an empty working directory and
+  `--ephemeral`. Read-only still means readable. Transcripts are untrusted input, so
+  the difference is real; see the module docs in `crates/remeet-ai/src/codex.rs`.
+
+Model names are free text, not a menu: which models an account may use is decided by
+the CLI and the account behind it. (`gpt-5.1-codex`, for instance, is rejected on a
+ChatGPT-account Codex login.) Settings has a Test button that spends a few tokens on
+a real round trip — the only honest check that a CLI is logged in and the model is
+allowed.
 
 Playback needs both sides on one timeline, so the tracks are summed into a 16 kHz mono
 `mixdown.wav` cached next to them on first play — telephone quality, which is all

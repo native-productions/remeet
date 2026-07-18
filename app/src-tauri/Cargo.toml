@@ -14,6 +14,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+remeet-ai.workspace = true
 remeet-session.workspace = true
 remeet-transcribe.workspace = true
 
@@ -28,3 +29,6 @@ tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -62,11 +62,18 @@ clearly, and gets out of the way. Warm rather than clinical, but never cute.
 Recording and transcription are proven. What is being built on top, in order:
 
 1. **Main window shell** — React frontend, two windows off one bundle. *(done)*
-2. **SQLite + projects** — a real store under Application Support, with recordings
-   grouped into projects. Disk stays the source of truth for audio; the database is
-   reconciled against it on startup, never trusted blindly over it.
-3. **AI providers** — the todo extractor generalised past the hardcoded `claude`
-   CLI, so Claude Code and Codex are interchangeable. Transcripts are untrusted
-   input: tool access stays denied whichever provider runs.
+2. **AI providers** — Claude Code and Codex behind one interface, chosen in
+   Settings, with meeting summaries as the first thing built on them. *(done)*
+   Transcripts are untrusted input: tool access stays restricted whichever provider
+   runs. Known debt: `remeet-todo` still drives `claude` directly instead of going
+   through `remeet-ai`.
+3. **Spaces** — recordings filed into named spaces, chosen in the popover before
+   recording and browsed as folders in the window. *(done)*
+
+   Shipped **without** the database this step originally called for. Membership
+   lives in each recording's own directory, so the disk stays the single source of
+   truth and there is nothing to reconcile. A database earns its place when there is
+   a query a directory walk cannot answer, and filing is not one. Revisit at
+   full-text search across transcripts.
 4. **Knowledge** — undefined on purpose. Not built until "knowledge is used for X"
    fits in one sentence.

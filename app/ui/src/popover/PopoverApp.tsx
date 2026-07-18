@@ -2,12 +2,14 @@ import { useCallback, useState } from "react";
 
 import { Player } from "../components/Player";
 import { RecordingList } from "../components/RecordingList";
+import { SpacePicker } from "../components/SpacePicker";
 import { TranscriptBody } from "../components/TranscriptBody";
 import { api, type Recording } from "../lib/api";
 import { duration, relativeTime } from "../lib/format";
 import { useAudioPlayer } from "../lib/useAudioPlayer";
 import { useRecorder } from "../lib/useRecorder";
 import { useRecordings } from "../lib/useRecordings";
+import { useSpaces } from "../lib/useSpaces";
 import { useTranscript } from "../lib/useTranscript";
 
 type Tab = "record" | "library";
@@ -23,6 +25,7 @@ export function PopoverApp() {
   const [open, setOpen] = useState<Recording | null>(null);
 
   const { recordings, refresh } = useRecordings();
+  const { spaces, activeSpace, chooseActive } = useSpaces();
   const recorder = useRecorder(
     // A finished recording is the thing you just made; show it.
     useCallback(() => {
@@ -128,6 +131,17 @@ export function PopoverApp() {
               {recorder.recording && (
                 <span className="rec-timer">{duration(recorder.elapsed)}</span>
               )}
+            </div>
+            {/* Filed before the fact: choosing where a call lands is part of
+                starting it, and there is no filing step afterwards to forget. */}
+            <div className="rec-space">
+              <span className="rec-space-label">Save to</span>
+              <SpacePicker
+                spaces={spaces}
+                value={activeSpace}
+                disabled={recorder.recording}
+                onChange={(id) => void chooseActive(id)}
+              />
             </div>
             <p className="rec-hint">
               Records both sides of the call. Everything stays on this Mac.

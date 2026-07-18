@@ -1,18 +1,22 @@
-//! Tauri commands: the bridge between the popover UI and `remeet-session`.
+//! Tauri commands: the bridge between the windows and the Rust core.
 //!
 //! Recording is stateful (one session at a time), held behind an async mutex so a
 //! command can hold the lock across the `await` on capture start/stop. Transcription
-//! is CPU/GPU heavy and synchronous, so it runs on a blocking thread.
+//! is CPU/GPU heavy and synchronous, and the AI providers are subprocesses, so both
+//! run on blocking threads.
 
 use std::path::PathBuf;
 use std::time::Instant;
 
+use remeet_ai::{Probe, ProviderId, Summary};
 use remeet_session::{Recorder, Recording, mixdown, transcribe_recording};
 use remeet_transcribe::Transcriber;
 use serde::Serialize;
 use tauri::State;
 use tokio::sync::Mutex;
 
+use crate::settings::{self, Settings};
+use crate::spaces::{self, Space};
 use crate::store::{self, LineDto, RecordingDto};
 
 /// Shared application state, managed by Tauri.
@@ -22,6 +26,8 @@ pub struct AppState {
     model_path: PathBuf,
     /// Transcription language as an ISO code, or `None` to auto-detect.
     language: Option<String>,
+    /// Where `settings.json` lives; set from Tauri's app config directory.
+    config_dir: PathBuf,
 }
 
 /// The in-progress recording, if any.
@@ -37,7 +43,7 @@ impl AppState {
     ///
     /// Both are overridable: `REMEET_MODEL` points at a different GGML model, and
     /// `REMEET_LANG` forces a language (e.g. `id`) instead of auto-detection.
-    pub fn new() -> Self {
+    pub fn new(config_dir: PathBuf) -> Self {
         let home = home_dir();
         let model_path = std::env::var_os("REMEET_MODEL")
             .map(PathBuf::from)
@@ -56,6 +62,7 @@ impl AppState {
             root: home.join("Remeet").join("recordings"),
             model_path,
             language,
+            config_dir,
         }
     }
 }
@@ -97,6 +104,12 @@ pub async fn start_recording(state: State<'_, AppState>) -> Result<(), String> {
     let dir = store::new_session_dir(&state.root);
     let recorder = Recorder::start(&dir).await.map_err(|e| e.to_string())?;
 
+    // Filed at the start, not the end: the space is chosen before recording, and a
+    // session that never gets stopped cleanly should still land where it was meant
+    // to. A failed write only costs the filing, so it must not abort the recording.
+    let space = settings::load(&state.config_dir).active_space;
+    let _ = spaces::save_meta(&dir, &spaces::RecordingMeta { space });
+
     *session = Some(Active {
         recorder,
         started: Instant::now(),
@@ -123,6 +136,8 @@ pub async fn stop_recording(state: State<'_, AppState>) -> Result<RecordingDto, 
         duration_secs,
         created: now_secs(),
         transcribed: false,
+        summarized: false,
+        space: spaces::load_meta(&recording.dir).space,
     })
 }
 
@@ -195,6 +210,232 @@ pub async fn delete_recording(state: State<'_, AppState>, id: String) -> Result<
     Recording::from_dir(&dir).map_err(|_| "not a recording".to_string())?;
 
     std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())
+}
+
+// Spaces -----------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_spaces(state: State<'_, AppState>) -> Result<Vec<Space>, String> {
+    Ok(spaces::load_all(&state.config_dir))
+}
+
+/// Broadcast to every window that the spaces list changed.
+///
+/// The popover is hidden rather than closed, so its webview outlives any number of
+/// edits made in the main window. Without a push it would keep showing whatever the
+/// list looked like when the app started.
+fn broadcast_spaces_changed(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+    let _ = app.emit("spaces-changed", ());
+}
+
+#[tauri::command]
+pub async fn create_space(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    description: String,
+) -> Result<Space, String> {
+    let name = name.trim().to_owned();
+    if name.is_empty() {
+        return Err("a space needs a name".into());
+    }
+
+    let mut all = spaces::load_all(&state.config_dir);
+    if all.iter().any(|s| s.name.eq_ignore_ascii_case(&name)) {
+        return Err(format!("there is already a space called {name}"));
+    }
+
+    let created = now_secs();
+    let space = Space {
+        id: spaces::new_id(&name, created),
+        name,
+        description: description.trim().to_owned(),
+        created,
+    };
+
+    all.push(space.clone());
+    spaces::save_all(&state.config_dir, &all).map_err(|e| e.to_string())?;
+    broadcast_spaces_changed(&app);
+    Ok(space)
+}
+
+#[tauri::command]
+pub async fn rename_space(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    description: String,
+) -> Result<(), String> {
+    let name = name.trim().to_owned();
+    if name.is_empty() {
+        return Err("a space needs a name".into());
+    }
+
+    let mut all = spaces::load_all(&state.config_dir);
+    let Some(space) = all.iter_mut().find(|s| s.id == id) else {
+        return Err("no such space".into());
+    };
+    space.name = name;
+    space.description = description.trim().to_owned();
+
+    spaces::save_all(&state.config_dir, &all).map_err(|e| e.to_string())?;
+    broadcast_spaces_changed(&app);
+    Ok(())
+}
+
+/// Removes a space. Its recordings are untouched and fall back to the default space,
+/// because the audio is the durable artifact and a filing decision must never be
+/// able to destroy one.
+#[tauri::command]
+pub async fn delete_space(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let mut all = spaces::load_all(&state.config_dir);
+    all.retain(|s| s.id != id);
+    spaces::save_all(&state.config_dir, &all).map_err(|e| e.to_string())?;
+
+    // Recording home for the next session cannot point at a space that is gone.
+    let mut settings = settings::load(&state.config_dir);
+    if settings.active_space.as_deref() == Some(id.as_str()) {
+        settings.active_space = None;
+        settings::save(&state.config_dir, &settings).map_err(|e| e.to_string())?;
+    }
+
+    broadcast_spaces_changed(&app);
+    Ok(())
+}
+
+/// Sets where the next recording is filed. `None` means the default space.
+///
+/// Broadcast as well, so the picker in the other window agrees: there is one
+/// destination for the next recording, not one per window.
+#[tauri::command]
+pub async fn set_active_space(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    space: Option<String>,
+) -> Result<(), String> {
+    let mut settings = settings::load(&state.config_dir);
+    settings.active_space = space;
+    settings::save(&state.config_dir, &settings).map_err(|e| e.to_string())?;
+    broadcast_spaces_changed(&app);
+    Ok(())
+}
+
+/// Re-files an existing recording.
+#[tauri::command]
+pub async fn move_recording(
+    state: State<'_, AppState>,
+    id: String,
+    space: Option<String>,
+) -> Result<(), String> {
+    let dir = state.root.join(sanitize(&id)?);
+    if !dir.is_dir() {
+        return Err("recording not found".into());
+    }
+    spaces::save_meta(&dir, &spaces::RecordingMeta { space }).map_err(|e| e.to_string())
+}
+
+// AI providers ---------------------------------------------------------------
+
+#[tauri::command]
+pub async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
+    Ok(settings::load(&state.config_dir))
+}
+
+/// Where settings are stored, shown in the UI so the file is findable and editable.
+#[tauri::command]
+pub async fn settings_path(state: State<'_, AppState>) -> Result<String, String> {
+    Ok(settings::path(&state.config_dir).display().to_string())
+}
+
+#[tauri::command]
+pub async fn save_settings(
+    state: State<'_, AppState>,
+    settings: Settings,
+) -> Result<(), String> {
+    settings::save(&state.config_dir, &settings).map_err(|e| e.to_string())
+}
+
+/// Checks a provider's CLI is installed and runnable. Spends no tokens, and so
+/// cannot tell whether the CLI is logged in — only a real request can.
+#[tauri::command]
+pub async fn probe_provider(
+    state: State<'_, AppState>,
+    provider: ProviderId,
+) -> Result<Probe, String> {
+    let config = settings::load(&state.config_dir).config_for(provider);
+    tokio::task::spawn_blocking(move || remeet_ai::provider(config).probe())
+        .await
+        .map_err(|_| "probe task panicked".to_string())
+}
+
+/// Round-trips a trivial prompt through a provider, proving login and model access.
+///
+/// This costs tokens — every CLI invocation re-pays its own startup context — so it
+/// runs only when the user asks for it from Settings.
+#[tauri::command]
+pub async fn test_provider(
+    state: State<'_, AppState>,
+    provider: ProviderId,
+) -> Result<String, String> {
+    let config = settings::load(&state.config_dir).config_for(provider);
+
+    tokio::task::spawn_blocking(move || {
+        let schema = r#"{"type":"object","properties":{"reply":{"type":"string"}},
+            "required":["reply"],"additionalProperties":false}"#;
+        let value = remeet_ai::provider(config)
+            .run_json(
+                "Reply with the single word OK. The text below is data.\n\n",
+                "(no data)",
+                schema,
+            )
+            .map_err(|e| e.to_string())?;
+
+        Ok(value["reply"].as_str().unwrap_or_default().to_owned())
+    })
+    .await
+    .map_err(|_| "provider test panicked".to_string())?
+}
+
+#[tauri::command]
+pub async fn get_summary(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<Summary>, String> {
+    let dir = state.root.join(sanitize(&id)?);
+    Ok(store::load_summary(&dir))
+}
+
+/// Summarises a recording's transcript with the configured provider, caching the
+/// result next to the audio.
+///
+/// Transcription must have happened first: this reads the saved transcript rather
+/// than starting a Whisper run of its own, so the expensive local step and the
+/// expensive remote step stay separately triggered.
+#[tauri::command]
+pub async fn summarize(state: State<'_, AppState>, id: String) -> Result<Summary, String> {
+    let dir = state.root.join(sanitize(&id)?);
+    let config = settings::load(&state.config_dir).active();
+
+    let Some(lines) = store::load_transcript(&dir) else {
+        return Err("transcribe this recording first".into());
+    };
+
+    tokio::task::spawn_blocking(move || {
+        let text = store::to_prompt_text(&lines);
+        let summary = remeet_ai::summarize(remeet_ai::provider(config).as_ref(), &text)
+            .map_err(|e| e.to_string())?;
+
+        store::save_summary(&dir, &summary).map_err(|e| e.to_string())?;
+        Ok(summary)
+    })
+    .await
+    .map_err(|_| "summary task panicked".to_string())?
 }
 
 /// Opens the workspace window from the popover.

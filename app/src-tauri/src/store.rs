@@ -7,11 +7,13 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use remeet_ai::Summary;
 use remeet_session::{Recording, Transcript};
 use serde::{Deserialize, Serialize};
 
 const TRANSCRIPT_JSON: &str = "transcript.json";
 pub const TRANSCRIPT_TXT: &str = "transcript.txt";
+const SUMMARY_JSON: &str = "summary.json";
 
 /// A recording as the frontend needs it: an id, how long it ran, and whether it has
 /// been transcribed yet.
@@ -24,6 +26,9 @@ pub struct RecordingDto {
     /// Seconds since the Unix epoch when the directory was created, for sorting.
     pub created: u64,
     pub transcribed: bool,
+    pub summarized: bool,
+    /// Space id this recording is filed under, or `None` for the default space.
+    pub space: Option<String>,
 }
 
 /// A transcribed line, flattened for the frontend. Round-trips through
@@ -52,6 +57,8 @@ impl RecordingDto {
             duration_secs,
             created: dir_created(dir),
             transcribed: dir.join(TRANSCRIPT_JSON).exists(),
+            summarized: dir.join(SUMMARY_JSON).exists(),
+            space: crate::spaces::load_meta(dir).space,
         })
     }
 }
@@ -101,6 +108,30 @@ pub fn to_dtos(transcript: &Transcript) -> Vec<LineDto> {
             text: line.text.trim().to_owned(),
         })
         .collect()
+}
+
+/// Saves a summary next to the audio it describes.
+///
+/// Cached on disk because each summary costs a full CLI invocation — re-opening a
+/// recording must not silently spend tokens again.
+pub fn save_summary(dir: &Path, summary: &Summary) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(summary).unwrap_or_else(|_| "{}".to_owned());
+    std::fs::write(dir.join(SUMMARY_JSON), json)
+}
+
+pub fn load_summary(dir: &Path) -> Option<Summary> {
+    let json = std::fs::read_to_string(dir.join(SUMMARY_JSON)).ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+/// Renders a transcript the way the AI prompts expect: `[speaker] text`, one line
+/// each, which is also the format `remeet-todo` reads.
+pub fn to_prompt_text(lines: &[LineDto]) -> String {
+    lines
+        .iter()
+        .map(|line| format!("[{}] {}", line.speaker, line.text))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// A fresh session directory name, `session-<unix-seconds>`.

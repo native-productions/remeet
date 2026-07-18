@@ -2,20 +2,83 @@
 
 Meeting capture, transcription, and action items for macOS.
 
-Status: **spike + app**. Capture, transcription, action-item extraction, and the
-record→transcribe orchestration are proven; a menu-bar app wraps the record and
-transcribe flow.
+Status: **working app**. Records both sides of a call, transcribes on device with
+Whisper, plays the audio back, files recordings into spaces, and summarises them
+through the Claude Code or Codex CLI already installed on the machine. Action-item
+extraction is proven as a spike and not yet wired into the UI.
+
+Everything runs locally. No account, no upload, no API key.
 
 ## Demo
-<img width="1149" height="892" alt="image" src="https://github.com/user-attachments/assets/6e184fb1-330e-41fa-92ab-6ebd05a020c8" />
-<img width="467" height="512" alt="image" src="https://github.com/user-attachments/assets/fb242f6c-2cda-4ecb-a131-6f5e979bfffe" />
-<img width="465" height="295" alt="image" src="https://github.com/user-attachments/assets/a4e3d0c1-f520-4caa-8b4c-f5a0e3271d68" />
-<img width="1152" height="892" alt="image" src="https://github.com/user-attachments/assets/0d780044-1655-4ba4-921d-54e945c575b7" />
-<img width="1150" height="893" alt="image" src="https://github.com/user-attachments/assets/fa955ab8-dc7c-4c63-9032-bfb546259fe5" />
-<img width="563" height="544" alt="image" src="https://github.com/user-attachments/assets/cf095a9a-0148-4d5f-bf18-b44f4af9ed3d" />
 
+Two surfaces. Capture lives in the menu bar and stays out of the way; reading,
+organising, and configuring happen in a window you open when you want it.
 
+### 1. Start a call without leaving it
 
+<p align="center">
+  <img width="420" alt="Remeet popover open over a browser: Record and Library tabs, a large record button under 'Ready to record', and a 'Save to' picker set to the Testing space"
+       src="https://github.com/user-attachments/assets/cf095a9a-0148-4d5f-bf18-b44f4af9ed3d" />
+</p>
+
+The popover answers one question — am I recording? — and offers one action. The
+**Save to** picker files the recording before it starts, so there is no sorting step
+afterwards to forget. Nothing here needs the main window, and the app has no dock
+icon until you ask for one.
+
+### 2. Read back both sides, attributed
+
+<img alt="Remeet main window showing a transcript: lines tagged 'me' and 'them' with timestamps, a playback bar above, and Transcript / Summary tabs"
+     src="https://github.com/user-attachments/assets/0d780044-1655-4ba4-921d-54e945c575b7" />
+
+System audio and microphone are captured as **separate tracks from one stream**, so
+every line carries a speaker without any diarization: `them` is the call, `me` is you.
+Transcription runs locally on the GPU through Whisper. The transport plays the mixdown
+back at 1x, 1.5x, or 2x with pitch preserved.
+
+### 3. Turn 30 minutes into something you can act on
+
+<img alt="Remeet summary view: an overview paragraph in Indonesian followed by a Key points list and a Re-summarise button"
+     src="https://github.com/user-attachments/assets/6e184fb1-330e-41fa-92ab-6ebd05a020c8" />
+
+The summary is written by the AI CLI already installed on the machine — Claude Code or
+Codex — reading the transcript, never the audio. It answers in the language the meeting
+was held in, and it is cached next to the recording so re-opening it costs nothing.
+
+### 4. File recordings into spaces
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img alt="Spaces list showing Default Space with 3 recordings and a Testing space with 1, plus a New space button"
+           src="https://github.com/user-attachments/assets/fb242f6c-2cda-4ecb-a131-6f5e979bfffe" />
+    </td>
+    <td width="50%" valign="top">
+      <img alt="A space opened: the folder 'Recording - 18 Jul 2026 at 20:47' expanded to reveal Transcript and Summary"
+           src="https://github.com/user-attachments/assets/a4e3d0c1-f520-4caa-8b4c-f5a0e3271d68" />
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      Spaces are folders for work that belongs together. Anything unfiled lands in
+      <strong>Default Space</strong>, including every recording made before spaces existed.
+    </td>
+    <td valign="top">
+      Open one and each recording is a folder holding what can be read from it. Deleting a
+      space never touches audio: its recordings fall back to the default.
+    </td>
+  </tr>
+</table>
+
+### 5. Point it at your own CLI
+
+<img alt="Remeet settings: AI provider choice between Claude Code 2.1.214 and codex-cli 0.141.0, with model and binary path fields and a Run test button"
+     src="https://github.com/user-attachments/assets/fa955ab8-dc7c-4c63-9032-bfb546259fe5" />
+
+Pick the provider, override the model or binary path, and prove it works. The version
+under each provider comes from probing the binary, which is free. **Run test** sends one
+real request, because being installed and being logged in are different things and only
+a round trip can tell them apart.
 
 
 ## Layout

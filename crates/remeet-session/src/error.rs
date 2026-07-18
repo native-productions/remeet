@@ -11,6 +11,9 @@ pub enum SessionError {
     #[error("reading {path}: {source}")]
     WavRead { path: String, source: hound::Error },
 
+    #[error("writing wav: {0}")]
+    WavWrite(#[from] hound::Error),
+
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 

@@ -1,0 +1,215 @@
+/* Main window shell. Shares every token with the popover; only the frame differs:
+   a real window, three columns, no shadow of its own. */
+
+body[data-window="main"] {
+  background: var(--bg);
+}
+
+.win {
+  display: grid;
+  grid-template-columns: 176px 288px 1fr;
+  height: 100vh;
+}
+
+/* Sidebar: sections, and the record control that would otherwise force a trip
+   back to the menu bar. */
+.side {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.side-head {
+  /* Clears the traffic lights: the title bar is transparent and overlaid. */
+  padding: 34px 16px 12px;
+}
+
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px;
+}
+
+.side-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--text-soft);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.side-item:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.side-item.is-active {
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.side-item:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: -2px;
+}
+
+.side-count {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.side-foot {
+  margin-top: auto;
+  padding: 12px;
+}
+
+.side-rec {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-panel);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease);
+}
+
+.side-rec:hover {
+  background: var(--accent-hover);
+}
+
+.side-rec:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.side-rec:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+
+.side-rec-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--on-accent);
+}
+
+/* Coral, and the only thing in the window allowed to pulse. */
+.side-rec.is-live {
+  background: var(--live);
+}
+
+.side-rec.is-live .side-rec-dot {
+  animation: side-pulse 1.8s var(--ease) infinite;
+}
+
+@keyframes side-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-rec.is-live .side-rec-dot {
+    animation: none;
+  }
+}
+
+.side-error {
+  margin-top: 8px;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--live);
+}
+
+/* Middle column: the list */
+.list-col,
+.detail-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.list-col {
+  border-right: 1px solid var(--border);
+}
+
+.col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 34px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-head {
+  /* The detail column sits right of the traffic lights, so its header needs no
+     extra clearance — only enough to line up with the list header. */
+  padding-top: 34px;
+}
+
+.col-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.col-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The list and transcript components are shared with the popover; in a window
+   they get room to breathe. */
+body[data-window="main"] .recordings {
+  padding: 8px;
+}
+
+body[data-window="main"] .row.is-selected {
+  background: var(--panel);
+}
+
+body[data-window="main"] .tbody {
+  padding: 8px 20px 20px;
+}
+
+body[data-window="main"] .line {
+  grid-template-columns: 54px 1fr;
+  padding: 9px 0;
+}
+
+body[data-window="main"] .line-text {
+  font-size: var(--text-base);
+}
+
+body[data-window="main"] .player {
+  padding: 10px 20px 12px;
+}

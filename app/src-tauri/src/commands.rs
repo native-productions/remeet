@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use remeet_session::{Recorder, Recording, transcribe_recording};
+use remeet_session::{Recorder, Recording, mixdown, transcribe_recording};
 use remeet_transcribe::Transcriber;
 use serde::Serialize;
 use tauri::State;
@@ -160,6 +160,50 @@ pub async fn transcribe(state: State<'_, AppState>, id: String) -> Result<Vec<Li
     .map_err(|_| "transcription task panicked".to_string())?
 }
 
+/// Mixes the recording's tracks into one playable file and returns its path.
+///
+/// A path rather than the bytes themselves: WKWebView loads media over range
+/// requests, which the asset protocol serves and a blob URL does not — handing the
+/// frontend audio inline leaves `<audio>` unable to play or seek it.
+#[tauri::command]
+pub async fn prepare_audio(state: State<'_, AppState>, id: String) -> Result<String, String> {
+    let dir = state.root.join(sanitize(&id)?);
+
+    // Decoding and resampling both tracks blocks; keep it off the async workers.
+    tokio::task::spawn_blocking(move || {
+        let recording = Recording::from_dir(&dir).map_err(|e| e.to_string())?;
+        let path = mixdown(&recording).map_err(|e| e.to_string())?;
+        Ok(path.display().to_string())
+    })
+    .await
+    .map_err(|_| "mixdown task panicked".to_string())?
+}
+
+/// Deletes a recording: its directory and everything in it — both track WAVs, the
+/// playback mixdown, and any saved transcript.
+///
+/// There is no trash and no undo, so this is deliberately narrow: the id must name a
+/// direct child of the recordings root that a [`Recording`] can actually be loaded
+/// from. A directory holding no tracks is not a recording, and is left alone rather
+/// than removed on this command's say-so.
+#[tauri::command]
+pub async fn delete_recording(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let dir = state.root.join(sanitize(&id)?);
+    if !dir.is_dir() {
+        return Err("recording not found".into());
+    }
+    Recording::from_dir(&dir).map_err(|_| "not a recording".to_string())?;
+
+    std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())
+}
+
+/// Opens the workspace window from the popover.
+#[tauri::command]
+pub async fn open_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    crate::show_main_window(&app);
+    Ok(())
+}
+
 /// Rejects an id that is not a bare directory name, so a command can never be
 /// steered outside the recordings root.
 fn sanitize(id: &str) -> Result<&str, String> {
@@ -186,4 +230,23 @@ fn now_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize;
+
+    #[test]
+    fn sanitize_accepts_a_session_directory_name() {
+        assert_eq!(sanitize("session-1784374125"), Ok("session-1784374125"));
+    }
+
+    // `delete_recording` joins the id onto the recordings root and removes the
+    // result, so an id that can escape the root is the whole risk.
+    #[test]
+    fn sanitize_rejects_anything_that_escapes_the_root() {
+        for id in ["", "..", "../..", "a/b", "a\\b", "../../Documents"] {
+            assert!(sanitize(id).is_err(), "{id} should be rejected");
+        }
+    }
 }

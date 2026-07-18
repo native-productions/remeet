@@ -29,6 +29,7 @@
 //! ```
 
 mod error;
+mod mixdown;
 mod recorder;
 mod transcript;
 
@@ -38,6 +39,7 @@ use std::time::Duration;
 use remeet_audio::Track;
 
 pub use error::{Result, SessionError};
+pub use mixdown::{MIXDOWN_WAV, mixdown};
 pub use recorder::Recorder;
 pub use transcript::{Speaker, Transcript, TranscriptLine, transcribe_recording};
 

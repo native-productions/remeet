@@ -4,67 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Remeet</title>
-    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app" id="app">
-      <header class="topbar">
-        <span class="wordmark"><i class="mark" aria-hidden="true"></i>Remeet</span>
-      </header>
-
-      <!-- Tabs: hidden while a transcript is open -->
-      <nav class="tabs" id="tabs" role="tablist" aria-label="Views">
-        <button class="tab is-active" id="tabRecord" type="button" role="tab" data-tab="record">
-          Record
-        </button>
-        <button class="tab" id="tabLibrary" type="button" role="tab" data-tab="library">
-          Library
-        </button>
-      </nav>
-
-      <!-- Transcript sub-header: shown only while a transcript is open -->
-      <div class="thead" id="thead" hidden>
-        <button class="back" id="back" type="button" aria-label="Back to library">
-          <span aria-hidden="true">&larr;</span>
-        </button>
-        <div class="tmeta">
-          <span class="ttitle" id="tTitle">Recording</span>
-          <span class="tsub" id="tSub"></span>
-        </div>
-        <button class="redo" id="redo" type="button" hidden>Re-transcribe</button>
-      </div>
-
-      <main class="stack">
-        <!-- Record tab -->
-        <section class="view record" id="record" role="tabpanel">
-          <div class="rec-wrap">
-            <span class="rec-state" id="recState">Ready to record</span>
-            <button class="rec" id="recBtn" type="button" aria-label="Start recording">
-              <span class="rec-core" aria-hidden="true"></span>
-            </button>
-            <span class="rec-timer" id="recTimer" hidden>0:00</span>
-          </div>
-          <p class="rec-hint">Records both sides of the call. Everything stays on this Mac.</p>
-        </section>
-
-        <!-- Library tab -->
-        <section class="view library" id="library" role="tabpanel" hidden>
-          <ul class="recordings" id="recordings"></ul>
-          <div class="empty" id="empty" hidden>
-            <p class="empty-title">No recordings yet</p>
-            <p class="empty-sub">
-              Head to the Record tab to capture your first meeting.
-            </p>
-          </div>
-        </section>
-
-        <!-- Transcript (drill-in from Library) -->
-        <section class="view transcript" id="transcript" role="tabpanel" hidden>
-          <div class="tbody" id="tbody"></div>
-        </section>
-      </main>
-    </div>
-
-    <script src="app.js"></script>
+    <!-- Both windows load this document; the root component picks its shell from
+         the Tauri window label. -->
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

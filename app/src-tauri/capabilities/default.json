@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the Remeet popover window.",
-  "windows": ["popover"],
+  "description": "Capabilities for the Remeet popover and main windows.",
+  "windows": ["popover", "main"],
   "permissions": [
     "core:default",
     "core:window:allow-show",

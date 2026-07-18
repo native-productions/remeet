@@ -268,7 +268,7 @@ fn word_set(text: &str) -> HashSet<String> {
 }
 
 /// Reads a 16-bit PCM WAV into interleaved f32 in [-1, 1], with its format.
-fn read_wav(path: &Path) -> Result<(Vec<f32>, u16, u32)> {
+pub(crate) fn read_wav(path: &Path) -> Result<(Vec<f32>, u16, u32)> {
     let mut reader = hound::WavReader::open(path).map_err(|source| SessionError::WavRead {
         path: path.display().to_string(),
         source,

@@ -1,9 +1,14 @@
-//! Remeet menu-bar app.
+//! Remeet app: a menu-bar popover plus a main window.
 //!
-//! A tray icon that toggles a borderless cream popover. The popover's UI is the
-//! static frontend under `../ui`; it talks to [`commands`] over Tauri's IPC, which in
-//! turn drives `remeet-session`. There is no dock icon and no main window: this is a
-//! menu-bar utility, so it runs with the macOS `Accessory` activation policy.
+//! Two surfaces, one binary. The tray icon toggles a borderless popover for the
+//! capture flow — start, stop, glance — and the main window is the workspace for
+//! everything that needs room. Both are rendered by the React frontend under
+//! `../ui`, which picks its shell from the window label, and both talk to
+//! [`commands`] over Tauri's IPC, which in turn drives `remeet-session`.
+//!
+//! The app idles as a macOS `Accessory` (menu-bar only, no dock icon) and switches
+//! to `Regular` while the main window is open, because a real window without a dock
+//! icon or app menu behaves like a bug.
 
 mod commands;
 mod store;
@@ -16,8 +21,9 @@ use tauri_plugin_positioner::{Position, WindowExt};
 
 use commands::AppState;
 
-/// The single popover window's label; matches `tauri.conf.json`.
+/// Window labels; these match `tauri.conf.json` and the frontend's shell switch.
 const POPOVER: &str = "popover";
+const MAIN: &str = "main";
 
 pub fn run() {
     tauri::Builder::default()
@@ -30,15 +36,19 @@ pub fn run() {
             commands::stop_recording,
             commands::get_transcript,
             commands::transcribe,
+            commands::prepare_audio,
+            commands::delete_recording,
+            commands::open_main_window,
         ])
         .setup(|app| {
-            // Menu-bar utility: no dock icon, no app-switcher presence.
+            // Idles as a menu-bar utility: no dock icon, no app-switcher presence.
             #[cfg(target_os = "macos")]
             app.handle()
                 .set_activation_policy(tauri::ActivationPolicy::Accessory)?;
 
             build_tray(app.handle())?;
             hide_popover_on_blur(app.handle())?;
+            accessory_when_main_closes(app.handle())?;
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -48,8 +58,9 @@ pub fn run() {
 /// Builds the menu-bar tray: a template glyph, a left-click that toggles the popover,
 /// and a right-click menu holding Quit.
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "Open Remeet", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Remeet", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&quit])?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
 
     // A monochrome glyph flagged as a template image, so the menu bar tints it for
     // the current appearance instead of showing the raw pixels.
@@ -60,10 +71,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| {
-            if event.id() == "quit" {
-                app.exit(0);
-            }
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             let app = tray.app_handle();
@@ -97,6 +108,49 @@ fn toggle_popover(app: &AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+/// Shows the main window, bringing the app forward as a regular app while it is up.
+///
+/// The window is declared hidden in `tauri.conf.json` and shown on demand, so the
+/// workspace only exists once it has been asked for.
+pub fn show_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN) else {
+        return;
+    };
+
+    // A window with no dock icon and no app menu cannot be cmd-tabbed back to once
+    // it falls behind, so the policy follows the window rather than the process.
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+
+    // The popover is a transient surface; it should not linger over the window.
+    if let Some(popover) = app.get_webview_window(POPOVER) {
+        let _ = popover.hide();
+    }
+}
+
+/// Drops back to a menu-bar-only app when the main window closes, so a dock icon
+/// never outlives the window that justified it.
+fn accessory_when_main_closes(app: &AppHandle) -> tauri::Result<()> {
+    let Some(window) = app.get_webview_window(MAIN) else {
+        return Ok(());
+    };
+
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::Destroyed | WindowEvent::CloseRequested { .. } = event {
+            #[cfg(target_os = "macos")]
+            let _ = handle.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            let _ = &handle;
+        }
+    });
+
+    Ok(())
 }
 
 /// Dismisses the popover when it loses focus, the way a native menu-bar popover does.

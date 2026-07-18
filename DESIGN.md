@@ -1,37 +1,42 @@
 # Remeet design system
 
-A quiet, warm, native macOS menu-bar surface. Cream, soft, unobtrusive. The interface
-should feel like paper in a bright room, not a screen demanding attention.
+A quiet, neutral, native macOS menu-bar surface. White, soft, unobtrusive. The
+interface should feel like paper in a bright room, not a screen demanding attention.
 
 ## Theme
 
 **Light only.** The physical scene: a developer glancing at a menu-bar popover in a
 bright daytime workspace, between coding sessions, to start a recording or read back
-what was said. Bright ambient light, quick glances, a calm mood. That forces light,
-and specifically a warm, low-glare light: cream, not stark white.
+what was said. Bright ambient light, quick glances, a calm mood. That forces light.
 
 There is no dark variant. A menu-bar popover is a momentary surface; committing fully
-to one warm light treatment is better than a mediocre pair.
+to one light treatment is better than a mediocre pair.
 
 ## Color
 
-Strategy: **Restrained.** Warm cream neutrals carry everything; a single clay accent
+Strategy: **Restrained.** Neutral surfaces carry everything; a single clay accent
 marks the primary action and selection; a distinct coral marks the one thing that
 must interrupt calm, a live recording.
 
-All values OKLCH. Neutrals are tinted toward the cream hue (~85), never pure gray.
+All values OKLCH. Neutrals are untinted (chroma 0), so the only colour on screen is
+the accent and the live state.
+
+**Revised from warm cream.** The neutrals were originally tinted toward hue ~85 to
+read as warm paper. At a 340pt popover the tint had no large field to be warm in and
+read instead as a yellow cast on white — a dirty screen, not warm paper. The warmth
+now lives entirely in the clay accent, against clean neutrals.
 
 ```
---bg:            oklch(0.968 0.012 85);   /* app / popover background, warm cream   */
---surface:       oklch(0.988 0.008 85);   /* raised: header, the record panel       */
---panel:         oklch(0.951 0.014 83);   /* recessed: list rows, input wells        */
---panel-hover:   oklch(0.935 0.016 82);   /* row hover                               */
---border:        oklch(0.900 0.014 80);   /* hairlines, 1px                          */
---border-strong: oklch(0.855 0.016 79);   /* focus rings, dividers that must read    */
+--bg:            oklch(1.000 0 0);        /* app / popover background, white         */
+--surface:       oklch(0.985 0 0);        /* raised: header, the record panel        */
+--panel:         oklch(0.965 0 0);        /* recessed: list rows, input wells        */
+--panel-hover:   oklch(0.945 0 0);        /* row hover                               */
+--border:        oklch(0.912 0 0);        /* hairlines, 1px                          */
+--border-strong: oklch(0.865 0 0);        /* focus rings, dividers that must read    */
 
---text:          oklch(0.320 0.020 70);   /* primary, warm near-black (never #000)   */
---text-soft:     oklch(0.505 0.018 72);   /* secondary labels                        */
---text-muted:    oklch(0.640 0.015 74);   /* timestamps, meta, placeholders          */
+--text:          oklch(0.320 0 0);        /* primary, near-black (never #000)        */
+--text-soft:     oklch(0.505 0 0);        /* secondary labels                        */
+--text-muted:    oklch(0.640 0 0);        /* timestamps, meta, placeholders          */
 
 --accent:        oklch(0.585 0.110 45);   /* clay: primary action, selection         */
 --accent-hover:  oklch(0.540 0.115 44);
@@ -46,7 +51,8 @@ Rules:
 - The accent is for the primary action, current selection, and focus. Not decoration.
 - Coral `--live` appears only while recording. Nothing else is allowed to pulse or
   demand attention. That exclusivity is what makes the recording state legible.
-- Never `#fff` / `#000`. The lightest surface is 0.988 L, the darkest text 0.320 L.
+- Never `#000` for text: the darkest text is 0.320 L. The background is white, but
+  nothing sitting on it goes to either rail.
 
 ## Typography
 
@@ -76,11 +82,12 @@ comes from weight and color, not size inflation.
 - Radius: popover 14, panels/buttons 10, rows 8, pills 999. Soft, consistent.
 - Popover width ~320px. It is a menu-bar surface, not a window.
 
-Elevation is a single soft, warm shadow, never gray:
+Elevation is a single soft neutral shadow, slightly deeper than a tinted one would
+need to be — on a white popover there is no warmth left to carry the edge:
 
 ```
---shadow: 0 1px 2px oklch(0.4 0.03 70 / 0.06),
-          0 8px 24px oklch(0.4 0.03 70 / 0.10);
+--shadow: 0 1px 2px oklch(0.4 0 0 / 0.07),
+          0 8px 24px oklch(0.4 0 0 / 0.14);
 ```
 
 The popover carries this shadow; interior panels use borders and background steps for
@@ -105,7 +112,7 @@ depth, not more shadow. No nested cards.
 Every interactive element defines default / hover / focus / active / disabled. Focus is
 a 2px `--border-strong` ring (keyboard), offset 2px; never remove focus outlines.
 
-- **Primary button** (record): filled `--accent`, white-cream text, radius 10. While
+- **Primary button** (record): filled `--accent`, near-white text, radius 10. While
   recording it becomes `--live` with the pulsing dot and reads "Stop".
 - **List rows** (recordings): `--panel`, radius 8, hover `--panel-hover`, selected gets
   `--accent-weak` background and `--accent` left-aligned title. No side-stripe borders.

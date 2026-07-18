@@ -17,7 +17,12 @@ tauri-build = { version = "2", features = [] }
 remeet-session.workspace = true
 remeet-transcribe.workspace = true
 
-tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri = { version = "2", features = [
+  "tray-icon",
+  "image-png",
+  "macos-private-api",
+  "protocol-asset",
+] }
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 
 serde = { workspace = true }

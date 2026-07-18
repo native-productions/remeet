@@ -15,8 +15,8 @@ crates/
   remeet-todo/        Action-item extraction via the local Claude CLI.
   remeet-session/     Orchestration: record a meeting to disk, transcribe it back.
 app/
-  src-tauri/          Tauri menu-bar app: tray, popover, commands over remeet-session.
-  ui/                 Static cream frontend (HTML/CSS/JS, no build step).
+  src-tauri/          Tauri shell: tray, popover + main window, commands over remeet-session.
+  ui/                 React frontend (Vite + TS, bun). One bundle serves both windows.
 spikes/
   dual-capture/       Throwaway: proves both meeting sides record to separate tracks.
   transcribe/         Throwaway: proves the two tracks decode into an attributed
@@ -239,18 +239,44 @@ process runs the binary (a locked or sleeping display makes ScreenCaptureKit rep
 
 ## Running the app
 
-The menu-bar app wraps the record and transcribe flow in a cream popover. Run it from
-your own terminal (it needs your GUI session for the tray and window):
+The app has two surfaces: a menu-bar popover for capture, and a main window for
+everything that needs room. Run it from your own terminal (it needs your GUI session
+for the tray and windows).
+
+The frontend is React under `app/ui`, built with Vite and **bun**:
 
 ```sh
-cargo run -p remeet-app
+cd app/ui && bun install     # once
+
+bun run app                  # dev: vite + the native app, with hot reload
 ```
 
-A tray icon appears in the menu bar; click it to open the popover. Record starts and
-stops a session; each recording lists with its length, and opening one transcribes it
-on demand. Recordings are stored under `~/Remeet/recordings`, and the app expects the
-Whisper model at `~/whisper/models/ggml-large-v3-turbo.bin`.
+(`bun run app`, not `bun app` — the latter looks for a file named `app`.)
 
-Design context is in `PRODUCT.md` and `DESIGN.md`; the UI is a light-committed cream
-system (OKLCH tokens, clay accent, a coral live state that is the only thing that
-pulses). It is a menu-bar utility, so it runs with no dock icon.
+Without the dev server, run the release build, which uses the bundled frontend:
+
+```sh
+cd app/ui && bun run build
+cargo run --release -p remeet-app
+```
+
+A tray icon appears in the menu bar; click it to open the popover, or use its
+right-click menu to open the main window. Record starts and stops a session; each
+recording lists with its length, and opening one transcribes it on demand and plays it
+back at 1x, 1.5x, or 2x. Recordings are stored under `~/Remeet/recordings`, and the
+app expects the Whisper model at `~/whisper/models/ggml-large-v3-turbo.bin`.
+
+The app idles as a macOS `Accessory` — menu bar only, no dock icon — and becomes a
+regular app while the main window is open, so it can be cmd-tabbed back to.
+
+Deleting a recording from the library removes its whole directory under
+`~/Remeet/recordings` — both track WAVs, the mixdown, and the transcript. There is no
+trash and no undo, so the row asks for confirmation in place first.
+
+Playback needs both sides on one timeline, so the tracks are summed into a 16 kHz mono
+`mixdown.wav` cached next to them on first play — telephone quality, which is all
+speech needs, and it reuses the band-limited resampler transcription already runs.
+
+Design context is in `PRODUCT.md` and `DESIGN.md`; the UI is a light-committed neutral
+system (OKLCH tokens, white surfaces, clay accent, a coral live state that is the only
+thing that pulses). It is a menu-bar utility, so it runs with no dock icon.

@@ -62,6 +62,8 @@ export type Settings = {
   codex: ProviderConfig;
   /** Where the next recording is filed. Null means the default space. */
   active_space: string | null;
+  /** Notify when another app has a call live, in case recording was forgotten. */
+  call_reminder: boolean;
 };
 
 export type Probe = {

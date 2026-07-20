@@ -29,6 +29,10 @@ pub struct Settings {
     /// Sticky on purpose: someone recording a day of calls for one client sets it
     /// once, not before every call.
     pub active_space: Option<String>,
+    /// Whether to notify when another app puts a call on the mic and speakers, in
+    /// case the user forgot to record it. On by default; the whole point of the app
+    /// is not missing meetings.
+    pub call_reminder: bool,
 }
 
 impl Default for Settings {
@@ -38,6 +42,7 @@ impl Default for Settings {
             claude_code: ProviderConfig::new(ProviderId::ClaudeCode),
             codex: ProviderConfig::new(ProviderId::Codex),
             active_space: None,
+            call_reminder: true,
         }
     }
 }

@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 remeet-ai.workspace = true
+remeet-audio.workspace = true
 remeet-session.workspace = true
 remeet-transcribe.workspace = true
 
@@ -25,6 +26,7 @@ tauri = { version = "2", features = [
   "protocol-asset",
 ] }
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
 
 serde = { workspace = true }
 serde_json = { workspace = true }

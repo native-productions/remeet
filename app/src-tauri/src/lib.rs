@@ -10,6 +10,7 @@
 //! to `Regular` while the main window is open, because a real window without a dock
 //! icon or app menu behaves like a bug.
 
+mod call_detect;
 mod commands;
 mod settings;
 mod spaces;
@@ -30,6 +31,7 @@ const MAIN: &str = "main";
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_positioner::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
             commands::list_recordings,
@@ -71,6 +73,11 @@ pub fn run() {
             build_tray(app.handle())?;
             hide_popover_on_blur(app.handle())?;
             accessory_when_main_closes(app.handle())?;
+
+            // Watches for a call on the mic + speakers so a forgotten recording gets
+            // a nudge. Managed so it outlives `setup` and unregisters on shutdown;
+            // it reads state, so it starts after the state is managed.
+            app.manage(call_detect::start(app.handle()));
             Ok(())
         })
         .run(tauri::generate_context!())

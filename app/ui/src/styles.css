@@ -312,6 +312,130 @@ body[data-window="popover"] {
   color: var(--text-muted);
 }
 
+/* Call-detected banner: a nudge to record a meeting already under way. It sits
+   above the record button, accent-tinted so it reads as a prompt, not a warning. */
+.rec-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-ring);
+  border-radius: var(--radius-row);
+  background: oklch(0.585 0.11 45 / 0.08);
+}
+
+.rec-alert-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.rec-alert-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rec-alert-sub {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.rec-alert-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.rec-alert-go {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: oklch(1 0 0);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease);
+}
+
+.rec-alert-go:hover {
+  background: var(--accent-hover);
+}
+
+.rec-alert-x {
+  padding: 5px 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.rec-alert-x:hover {
+  color: var(--text);
+}
+
+/* Switch: a labelled checkbox. The native input drives state and focus; the track
+   and thumb are the visual, so keyboard and screen-reader behaviour stay intact. */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  transition: background var(--fast) var(--ease);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: oklch(1 0 0);
+  transition: transform var(--fast) var(--ease);
+}
+
+.toggle input:checked + .toggle-track {
+  background: var(--accent);
+}
+
+.toggle input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(16px);
+}
+
+.toggle input:focus-visible + .toggle-track {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+
+.toggle-text {
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
 /* Library tab */
 .recordings {
   list-style: none;

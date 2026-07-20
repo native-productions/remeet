@@ -6,6 +6,8 @@
 //! run on blocking threads.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use remeet_ai::{Probe, ProviderId, Summary};
@@ -28,6 +30,10 @@ pub struct AppState {
     language: Option<String>,
     /// Where `settings.json` lives; set from Tauri's app config directory.
     config_dir: PathBuf,
+    /// A lock-free mirror of "a recording is in progress", so the call detector —
+    /// which runs on a CoreAudio thread and cannot await the async `session` mutex —
+    /// can tell Remeet's own capture apart from another app's call.
+    recording: Arc<AtomicBool>,
 }
 
 /// The in-progress recording, if any.
@@ -63,7 +69,19 @@ impl AppState {
             model_path,
             language,
             config_dir,
+            recording: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Where `settings.json` lives. The call detector reads it to honour the
+    /// reminder toggle from a non-command context.
+    pub fn config_dir(&self) -> PathBuf {
+        self.config_dir.clone()
+    }
+
+    /// A handle to the "recording in progress" flag, shared with the call detector.
+    pub fn recording_flag(&self) -> Arc<AtomicBool> {
+        self.recording.clone()
     }
 }
 
@@ -114,6 +132,9 @@ pub async fn start_recording(state: State<'_, AppState>) -> Result<(), String> {
         recorder,
         started: Instant::now(),
     });
+    // Set under the session lock so the detector never sees "not recording" during
+    // the window where capture is up but the session slot is not yet filled.
+    state.recording.store(true, Ordering::SeqCst);
     Ok(())
 }
 
@@ -121,6 +142,7 @@ pub async fn start_recording(state: State<'_, AppState>) -> Result<(), String> {
 pub async fn stop_recording(state: State<'_, AppState>) -> Result<RecordingDto, String> {
     let mut session = state.session.lock().await;
     let active = session.take().ok_or("not recording")?;
+    state.recording.store(false, Ordering::SeqCst);
 
     let recording = active.recorder.stop().await.map_err(|e| e.to_string())?;
     let id = dir_id(&recording.dir);

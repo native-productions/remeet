@@ -87,6 +87,27 @@ export function SettingsPane() {
 
       <div className="pane-body">
         <section className="field">
+          <h2 className="field-head">Meeting reminder</h2>
+          <p className="field-hint">
+            When another app puts a call on your mic and speakers, Remeet can notify
+            you so a meeting never goes unrecorded. Tap the notification to start.
+          </p>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={settings.call_reminder}
+              onChange={(e) =>
+                update({ ...settings, call_reminder: e.target.checked })
+              }
+            />
+            <span className="toggle-track" aria-hidden="true">
+              <span className="toggle-thumb" />
+            </span>
+            <span className="toggle-text">Notify me when a call is detected</span>
+          </label>
+        </section>
+
+        <section className="field">
           <h2 className="field-head">AI provider</h2>
           <p className="field-hint">
             Used for summaries, and for action items as they land. Runs the CLI

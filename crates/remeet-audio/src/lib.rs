@@ -12,11 +12,13 @@
 //! This crate is also where the raw Objective-C binding surface stops. Everything
 //! above it sees [`AudioFrame`] and plain Rust types.
 
+mod activity;
 mod capture;
 mod error;
 mod frame;
 mod sink;
 
+pub use activity::CallWatcher;
 pub use capture::DualCapture;
 pub use error::{AudioError, Result};
 pub use frame::{AudioFrame, Track};

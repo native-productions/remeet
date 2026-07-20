@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Player } from "../components/Player";
 import { RecordingList } from "../components/RecordingList";
@@ -7,6 +7,7 @@ import { TranscriptBody } from "../components/TranscriptBody";
 import { api, type Recording } from "../lib/api";
 import { duration, relativeTime } from "../lib/format";
 import { useAudioPlayer } from "../lib/useAudioPlayer";
+import { useCallReminder } from "../lib/useCallReminder";
 import { useRecorder } from "../lib/useRecorder";
 import { useRecordings } from "../lib/useRecordings";
 import { useSpaces } from "../lib/useSpaces";
@@ -33,6 +34,13 @@ export function PopoverApp() {
       setTab("library");
     }, [refresh]),
   );
+
+  // A detected call surfaces here; landing on the Record tab makes the one action
+  // that matters reachable without a click.
+  const reminder = useCallReminder(useCallback(() => setTab("record"), []));
+  useEffect(() => {
+    if (reminder.detected) setTab("record");
+  }, [reminder.detected]);
 
   const player = useAudioPlayer(open?.id ?? null);
   const { state, transcribe } = useTranscript(open, refresh);
@@ -115,6 +123,30 @@ export function PopoverApp() {
           </section>
         ) : tab === "record" ? (
           <section className="view record" role="tabpanel">
+            {reminder.detected && !recorder.recording && (
+              <div className="rec-alert" role="alert">
+                <div className="rec-alert-text">
+                  <span className="rec-alert-title">Meeting detected</span>
+                  <span className="rec-alert-sub">Mic and speakers are both live.</span>
+                </div>
+                <div className="rec-alert-actions">
+                  <button
+                    className="rec-alert-go"
+                    type="button"
+                    onClick={() => void reminder.record()}
+                  >
+                    Record
+                  </button>
+                  <button
+                    className="rec-alert-x"
+                    type="button"
+                    onClick={reminder.dismiss}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="rec-wrap">
               <span className="rec-state">
                 {recorder.error ?? (recorder.recording ? "Recording" : "Ready to record")}

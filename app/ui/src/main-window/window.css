@@ -350,6 +350,8 @@ body[data-window="main"] .player {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
+  /* The rows carry their own disclosure caret; the default <li> bullet is stray. */
+  list-style: none;
 }
 
 .folder {
@@ -427,6 +429,24 @@ body[data-window="main"] .player {
 }
 
 .space-row:hover .row-del {
+  opacity: 1;
+}
+
+/* A filed recording carries its own delete, so the container is not the toggle —
+   the caret+title button inside it is. Matches the space-row treatment. */
+.rec-folder {
+  cursor: default;
+}
+
+.rec-folder.is-confirming {
+  flex-wrap: wrap;
+  background: var(--panel-hover);
+}
+
+.rec-folder:hover .row-del,
+.rec-folder:focus-within .row-del,
+.rec-folder:hover .row-reveal,
+.rec-folder:focus-within .row-reveal {
   opacity: 1;
 }
 
@@ -681,6 +701,31 @@ body[data-window="main"] .player {
 .input:focus-visible {
   outline: 2px solid var(--accent-ring);
   outline-offset: 1px;
+}
+
+/* A labelled control under a field, e.g. the transcription language picker. */
+.field-sub {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.field-sub-label {
+  flex: none;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.field-sub .input {
+  flex: 1;
+}
+
+select.input {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .test-row {

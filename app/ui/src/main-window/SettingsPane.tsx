@@ -108,6 +108,64 @@ export function SettingsPane() {
         </section>
 
         <section className="field">
+          <h2 className="field-head">Transcription</h2>
+          <p className="field-hint">
+            Accurate uses beam search on the full model — best for Indonesian and
+            accented speech, but slow on long meetings. Fast decodes greedily: several
+            times quicker, with a real accuracy cost.
+          </p>
+          <div className="choices">
+            {(
+              [
+                { id: "accurate", label: "Accurate", sub: "Best quality — slower" },
+                { id: "fast", label: "Fast", sub: "Several times quicker — rougher" },
+              ] as const
+            ).map((mode) => (
+              <label
+                key={mode.id}
+                className={`choice${settings.transcribe_speed === mode.id ? " is-active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="transcribe_speed"
+                  checked={settings.transcribe_speed === mode.id}
+                  onChange={() =>
+                    update({ ...settings, transcribe_speed: mode.id })
+                  }
+                />
+                <span className="choice-main">
+                  <span className="choice-label">{mode.label}</span>
+                  <span className="choice-sub">{mode.sub}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <label className="field-sub">
+            <span className="field-sub-label">Language</span>
+            <select
+              className="input"
+              value={settings.transcribe_language ?? ""}
+              onChange={(e) =>
+                update({
+                  ...settings,
+                  transcribe_language: e.target.value || null,
+                })
+              }
+            >
+              <option value="">Auto-detect</option>
+              <option value="id">Indonesian</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <p className="field-hint">
+            Auto-detect decides between Indonesian and English from the clearest speech
+            in the meeting, shared across both sides. Force a language if a recording
+            still comes out wrong.
+          </p>
+        </section>
+
+        <section className="field">
           <h2 className="field-head">AI provider</h2>
           <p className="field-hint">
             Used for summaries, and for action items as they land. Runs the CLI

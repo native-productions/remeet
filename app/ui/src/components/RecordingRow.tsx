@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { api, errorText, type Recording } from "../lib/api";
 import { duration, relativeTime } from "../lib/format";
+import { RevealGlyph } from "./RevealGlyph";
 
 type Props = {
   recording: Recording;
@@ -47,6 +48,22 @@ export function RecordingRow({ recording, selected, onOpen, onDeleted }: Props) 
       <span className={`row-tag ${recording.transcribed ? "done" : "pending"}`}>
         {recording.transcribed ? "Transcribed" : "Transcribe"}
       </span>
+
+      <button
+        className="row-reveal"
+        type="button"
+        aria-label="Show in Finder"
+        title="Show in Finder"
+        onClick={(e) => {
+          // The row opens on click; revealing the files must not also open it.
+          e.stopPropagation();
+          // A failed reveal is inconsequential — the files are still there — so it
+          // stays out of the delete-confirm's error line.
+          void api.revealRecording(recording.id).catch(() => {});
+        }}
+      >
+        <RevealGlyph />
+      </button>
 
       <button
         className="row-del"

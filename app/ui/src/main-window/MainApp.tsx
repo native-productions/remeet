@@ -158,6 +158,7 @@ export function MainApp() {
                   setTab(view);
                 }}
                 onSpacesChanged={() => void refreshSpaces()}
+                onRecordingsChanged={onListChanged}
               />
             ) : (
               <>
@@ -222,6 +223,7 @@ export function MainApp() {
                 {tab === "transcript" ? (
                   <TranscriptBody
                     state={transcript.state}
+                    live={transcript.live}
                     onTranscribe={() => void transcript.transcribe()}
                   />
                 ) : (

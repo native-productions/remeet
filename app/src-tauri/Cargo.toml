@@ -31,6 +31,8 @@ tauri-plugin-notification = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+# Bare libc for the SIGABRT exit guard around the whisper.cpp/ggml Metal teardown.
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = { workspace = true }

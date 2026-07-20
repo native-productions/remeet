@@ -2936,6 +2936,7 @@ dependencies = [
 name = "remeet-app"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "remeet-ai",
  "remeet-audio",
  "remeet-session",

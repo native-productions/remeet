@@ -43,7 +43,7 @@ export function PopoverApp() {
   }, [reminder.detected]);
 
   const player = useAudioPlayer(open?.id ?? null);
-  const { state, transcribe } = useTranscript(open, refresh);
+  const { state, live, transcribe } = useTranscript(open, refresh);
 
   const leaveTranscript = () => {
     setOpen(null);
@@ -51,7 +51,11 @@ export function PopoverApp() {
   };
 
   return (
-    <div className={`app${recorder.recording ? " is-recording" : ""}`}>
+    <div
+      className={`app${recorder.recording ? " is-recording" : ""}${
+        recorder.paused ? " is-paused" : ""
+      }`}
+    >
       <header className="topbar">
         <span className="wordmark">
           <i className="mark" aria-hidden="true" />
@@ -119,7 +123,11 @@ export function PopoverApp() {
         {open ? (
           <section className="view transcript" role="tabpanel">
             <Player player={player} />
-            <TranscriptBody state={state} onTranscribe={() => void transcribe()} />
+            <TranscriptBody
+              state={state}
+              live={live}
+              onTranscribe={() => void transcribe()}
+            />
           </section>
         ) : tab === "record" ? (
           <section className="view record" role="tabpanel">
@@ -149,7 +157,12 @@ export function PopoverApp() {
             )}
             <div className="rec-wrap">
               <span className="rec-state">
-                {recorder.error ?? (recorder.recording ? "Recording" : "Ready to record")}
+                {recorder.error ??
+                  (recorder.paused
+                    ? "Paused"
+                    : recorder.recording
+                      ? "Recording"
+                      : "Ready to record")}
               </span>
               <button
                 className="rec"
@@ -161,7 +174,17 @@ export function PopoverApp() {
                 <span className="rec-core" aria-hidden="true" />
               </button>
               {recorder.recording && (
-                <span className="rec-timer">{duration(recorder.elapsed)}</span>
+                <div className="rec-live">
+                  <span className="rec-timer">{duration(recorder.elapsed)}</span>
+                  <button
+                    className="rec-pause"
+                    type="button"
+                    aria-label={recorder.paused ? "Resume recording" : "Pause recording"}
+                    onClick={() => void recorder.togglePause()}
+                  >
+                    {recorder.paused ? "Resume" : "Pause"}
+                  </button>
+                </div>
               )}
             </div>
             {/* Filed before the fact: choosing where a call lands is part of

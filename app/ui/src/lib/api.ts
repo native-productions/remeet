@@ -17,6 +17,17 @@ export type Recording = {
   space: string | null;
 };
 
+/**
+ * One segment streamed from the backend while a transcription runs, for the live
+ * preview. Carries the recording id so a stale run's events can be ignored.
+ */
+export type TranscribeSegment = {
+  id: string;
+  speaker: "me" | "them";
+  start_secs: number;
+  text: string;
+};
+
 export type Space = {
   id: string;
   name: string;
@@ -42,6 +53,8 @@ export type Line = {
 
 export type Status = {
   recording: boolean;
+  /** Recording, but capture is paused. */
+  paused: boolean;
   elapsed_secs: number;
 };
 
@@ -64,6 +77,10 @@ export type Settings = {
   active_space: string | null;
   /** Notify when another app has a call live, in case recording was forgotten. */
   call_reminder: boolean;
+  /** Transcription speed/accuracy trade-off. */
+  transcribe_speed: "accurate" | "fast";
+  /** Forced transcription language (ISO code), or null to auto-detect. */
+  transcribe_language: string | null;
 };
 
 export type Probe = {
@@ -87,13 +104,18 @@ export const api = {
   getStatus: () => invoke<Status>("get_status"),
   listRecordings: () => invoke<Recording[]>("list_recordings"),
   startRecording: () => invoke<void>("start_recording"),
+  /** Freezes capture without ending the session; audio resumes gap-free. */
+  pauseRecording: () => invoke<void>("pause_recording"),
+  resumeRecording: () => invoke<void>("resume_recording"),
   stopRecording: () => invoke<Recording>("stop_recording"),
   getTranscript: (id: string) => invoke<Line[] | null>("get_transcript", { id }),
   transcribe: (id: string) => invoke<Line[]>("transcribe", { id }),
-  /** Builds the playback mixdown if needed; returns its path on disk. */
+  /** Returns the recording's playback audio path — the microphone track. */
   prepareAudio: (id: string) => invoke<string>("prepare_audio", { id }),
   /** Permanent: removes the audio, the mixdown, and the transcript. */
   deleteRecording: (id: string) => invoke<void>("delete_recording", { id }),
+  /** Opens the recording's folder in Finder so the raw files can be reached. */
+  revealRecording: (id: string) => invoke<void>("reveal_recording", { id }),
   openMainWindow: () => invoke<void>("open_main_window"),
 
   getSettings: () => invoke<Settings>("get_settings"),

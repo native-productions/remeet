@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 
-import { api, errorText, type Line, type Recording } from "./api";
+import {
+  api,
+  errorText,
+  type Line,
+  type Recording,
+  type TranscribeSegment,
+} from "./api";
 
 type State =
   | { kind: "loading" }
@@ -19,11 +26,15 @@ type State =
  */
 export function useTranscript(recording: Recording | null, onTranscribed?: () => void) {
   const [state, setState] = useState<State>({ kind: "loading" });
+  /** Segments streamed from the backend while a run is in progress, for a live
+   *  preview. Arrives per track and unordered; the saved result is the truth. */
+  const [live, setLive] = useState<Line[]>([]);
 
   useEffect(() => {
     if (!recording) return;
     let alive = true;
     setState({ kind: "loading" });
+    setLive([]);
 
     void (async () => {
       try {
@@ -40,18 +51,41 @@ export function useTranscript(recording: Recording | null, onTranscribed?: () =>
     };
   }, [recording]);
 
-  /** Runs transcription, replacing any cached transcript with the new result. */
+  /** Runs transcription, replacing any cached transcript with the new result.
+   *
+   *  While it runs, the backend streams each segment over `transcribe-segment`; those
+   *  fill `live` so the view can show the transcript arriving rather than a bare
+   *  spinner. The listener is scoped to this run and torn down when it ends. */
   const transcribe = useCallback(async () => {
     if (!recording) return;
+    const id = recording.id;
+    setLive([]);
     setState({ kind: "working" });
+
+    const unlisten = await listen<TranscribeSegment>("transcribe-segment", (event) => {
+      if (event.payload.id !== id) return;
+      setLive((current) => [
+        ...current,
+        {
+          speaker: event.payload.speaker,
+          start_secs: event.payload.start_secs,
+          text: event.payload.text,
+        },
+      ]);
+    });
+
     try {
-      const lines = await api.transcribe(recording.id);
+      const lines = await api.transcribe(id);
       setState({ kind: "ready", lines });
       onTranscribed?.();
     } catch (e) {
       setState({ kind: "failed", message: errorText(e) });
+    } finally {
+      unlisten();
+      // The saved transcript now stands in for the preview.
+      setLive([]);
     }
   }, [recording, onTranscribed]);
 
-  return { state, transcribe };
+  return { state, live, transcribe };
 }

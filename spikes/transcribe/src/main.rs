@@ -90,7 +90,7 @@ fn transcribe_track(
 
     let start = Instant::now();
     let segments = transcriber
-        .transcribe(&samples, channels, sample_rate, None)
+        .transcribe(&samples, channels, sample_rate, None, &Default::default())
         .with_context(|| format!("transcribing {}", path.display()))?;
     println!(
         "  {} segments in {:.1}s",

@@ -9,7 +9,7 @@ export const SPEEDS = [1, 1.5, 2] as const;
 export type Player = ReturnType<typeof useAudioPlayer>;
 
 /**
- * Playback for one recording's mixdown.
+ * Playback for one recording.
  *
  * The audio element is kept in a ref rather than in the tree: it outlives renders,
  * and nothing about it belongs in the DOM the user sees.
@@ -94,8 +94,8 @@ export function useAudioPlayer(recordingId: string | null) {
       setLoading(true);
       setError(null);
       try {
-        // The mixdown is decoded and resampled on demand, so it is built on first
-        // play rather than every time a recording is opened.
+        // Resolves the recording's playback file (the microphone track) lazily, on
+        // first play rather than every time a recording is opened.
         const path = await api.prepareAudio(recordingId);
         audio.src = convertFileSrc(path);
         audio.playbackRate = SPEEDS[speedIndex] ?? 1;

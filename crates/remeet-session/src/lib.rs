@@ -22,7 +22,7 @@
 //!
 //! // Transcribe, whenever.
 //! let transcriber = Transcriber::load(Path::new("models/ggml-large-v3-turbo.bin"))?;
-//! let transcript = transcribe_recording(&transcriber, &recording, None)?;
+//! let transcript = transcribe_recording(&transcriber, &recording, None, &Default::default())?;
 //! print!("{transcript}");
 //! # Ok(())
 //! # }
@@ -41,7 +41,10 @@ use remeet_audio::Track;
 pub use error::{Result, SessionError};
 pub use mixdown::{MIXDOWN_WAV, mixdown};
 pub use recorder::Recorder;
-pub use transcript::{Speaker, Transcript, TranscriptLine, transcribe_recording};
+pub use remeet_transcribe::LiveSegment;
+pub use transcript::{
+    Speaker, Transcript, TranscriptLine, transcribe_recording, transcribe_recording_streaming,
+};
 
 /// Every track a recording can hold, in a stable order.
 const KNOWN_TRACKS: [Track; 2] = [Track::System, Track::Microphone];

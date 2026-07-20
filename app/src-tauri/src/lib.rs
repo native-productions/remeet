@@ -16,10 +16,12 @@ mod settings;
 mod spaces;
 mod store;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_positioner::{Position, WindowExt};
 
 use commands::AppState;
@@ -27,6 +29,10 @@ use commands::AppState;
 /// Window labels; these match `tauri.conf.json` and the frontend's shell switch.
 const POPOVER: &str = "popover";
 const MAIN: &str = "main";
+
+/// Set once the app has begun exiting, so the abort guard can tell the known
+/// teardown bug apart from a genuine runtime fault. See [`install_exit_guard`].
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 
 pub fn run() {
     tauri::Builder::default()
@@ -36,11 +42,14 @@ pub fn run() {
             commands::get_status,
             commands::list_recordings,
             commands::start_recording,
+            commands::pause_recording,
+            commands::resume_recording,
             commands::stop_recording,
             commands::get_transcript,
             commands::transcribe,
             commands::prepare_audio,
             commands::delete_recording,
+            commands::reveal_recording,
             commands::open_main_window,
             commands::get_settings,
             commands::save_settings,
@@ -78,10 +87,51 @@ pub fn run() {
             // a nudge. Managed so it outlives `setup` and unregisters on shutdown;
             // it reads state, so it starts after the state is managed.
             app.manage(call_detect::start(app.handle()));
+
+            install_exit_guard();
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Remeet");
+        .build(tauri::generate_context!())
+        .expect("error while building Remeet")
+        .run(|_app, event| {
+            if let RunEvent::ExitRequested { .. } = event {
+                // From here on, a SIGABRT is the ggml Metal teardown bug rather than a
+                // live fault, so the guard is allowed to swallow it. Set before the
+                // C++ static destructors run at `exit()`.
+                SHUTTING_DOWN.store(true, Ordering::SeqCst);
+            }
+        });
+}
+
+/// Installs a SIGABRT handler that turns the whisper.cpp/ggml Metal teardown abort
+/// into a clean exit.
+///
+/// whisper.cpp keeps a global Metal device that is torn down from a C++ static
+/// destructor at `exit()`. On this machine `ggml_metal_rsets_free` fails a
+/// `GGML_ASSERT` there and calls `abort()`, so every quit *after* a transcription
+/// crashes with SIGABRT — nothing the Rust side does per call can prevent a free that
+/// runs during process finalization.
+///
+/// The guard only acts once [`SHUTTING_DOWN`] is set, so a genuine runtime abort
+/// still crashes and produces a report; only the teardown abort is swallowed.
+fn install_exit_guard() {
+    extern "C" fn on_abort(_signal: libc::c_int) {
+        if SHUTTING_DOWN.load(Ordering::SeqCst) {
+            // Async-signal-safe: end the process without running further finalizers.
+            unsafe { libc::_exit(0) };
+        }
+        // A real abort: restore the default disposition and re-raise so it crashes
+        // and reports exactly as it would have without this guard.
+        unsafe {
+            libc::signal(libc::SIGABRT, libc::SIG_DFL);
+            libc::raise(libc::SIGABRT);
+        }
+    }
+
+    // SAFETY: registers a minimal, async-signal-safe handler for one signal.
+    unsafe {
+        libc::signal(libc::SIGABRT, on_abort as *const () as libc::sighandler_t);
+    }
 }
 
 /// Builds the menu-bar tray: a template glyph, a left-click that toggles the popover,
@@ -102,7 +152,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => show_main_window(app),
-            "quit" => app.exit(0),
+            "quit" => {
+                SHUTTING_DOWN.store(true, Ordering::SeqCst);
+                app.exit(0);
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

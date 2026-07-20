@@ -8,13 +8,15 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use remeet_ai::{Probe, ProviderId, Summary};
-use remeet_session::{Recorder, Recording, mixdown, transcribe_recording};
-use remeet_transcribe::Transcriber;
+use remeet_session::{
+    LiveSegment, Recorder, Recording, Speaker, transcribe_recording_streaming,
+};
+use remeet_transcribe::{DecodeOptions, Transcriber};
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 
 use crate::settings::{self, Settings};
@@ -28,6 +30,9 @@ pub struct AppState {
     model_path: PathBuf,
     /// Transcription language as an ISO code, or `None` to auto-detect.
     language: Option<String>,
+    /// A ggml Silero VAD model to skip silence with, if one is present. Checked for
+    /// existence per transcription, so dropping the file in enables it with no config.
+    vad_model_path: Option<PathBuf>,
     /// Where `settings.json` lives; set from Tauri's app config directory.
     config_dir: PathBuf,
     /// A lock-free mirror of "a recording is in progress", so the call detector —
@@ -40,6 +45,22 @@ pub struct AppState {
 struct Active {
     recorder: Recorder,
     started: Instant,
+    /// When the current pause began, if paused right now.
+    paused_at: Option<Instant>,
+    /// Time spent paused across every completed pause span so far.
+    paused_total: Duration,
+}
+
+impl Active {
+    /// Wall-clock time minus every paused span — i.e. time actually captured to disk.
+    /// This is what the timer should show, since paused frames are dropped, not saved.
+    fn recorded(&self) -> Duration {
+        let in_pause = self.paused_at.map(|at| at.elapsed()).unwrap_or_default();
+        self.started
+            .elapsed()
+            .saturating_sub(self.paused_total)
+            .saturating_sub(in_pause)
+    }
 }
 
 impl AppState {
@@ -63,11 +84,24 @@ impl AppState {
             .ok()
             .filter(|s| !s.trim().is_empty());
 
+        // Optional and off unless the model is actually there: `REMEET_VAD_MODEL`
+        // overrides, otherwise the conventional filename next to the Whisper model.
+        let vad_model_path = std::env::var_os("REMEET_VAD_MODEL")
+            .map(PathBuf::from)
+            .or_else(|| {
+                Some(
+                    home.join("whisper")
+                        .join("models")
+                        .join("ggml-silero-v5.1.2.bin"),
+                )
+            });
+
         Self {
             session: Mutex::new(None),
             root: home.join("Remeet").join("recordings"),
             model_path,
             language,
+            vad_model_path,
             config_dir,
             recording: Arc::new(AtomicBool::new(false)),
         }
@@ -89,6 +123,9 @@ impl AppState {
 #[derive(Serialize)]
 pub struct Status {
     recording: bool,
+    /// True while recording but with capture paused.
+    paused: bool,
+    /// Time actually captured to disk — frozen while paused.
     elapsed_secs: u64,
 }
 
@@ -98,10 +135,12 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<Status, String> {
     Ok(match session.as_ref() {
         Some(active) => Status {
             recording: true,
-            elapsed_secs: active.started.elapsed().as_secs(),
+            paused: active.paused_at.is_some(),
+            elapsed_secs: active.recorded().as_secs(),
         },
         None => Status {
             recording: false,
+            paused: false,
             elapsed_secs: 0,
         },
     })
@@ -131,10 +170,38 @@ pub async fn start_recording(state: State<'_, AppState>) -> Result<(), String> {
     *session = Some(Active {
         recorder,
         started: Instant::now(),
+        paused_at: None,
+        paused_total: Duration::ZERO,
     });
     // Set under the session lock so the detector never sees "not recording" during
     // the window where capture is up but the session slot is not yet filled.
     state.recording.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Pauses capture without ending the session. Idempotent: pausing an already-paused
+/// recording is a no-op, so a double click cannot corrupt the paused-time accounting.
+#[tauri::command]
+pub async fn pause_recording(state: State<'_, AppState>) -> Result<(), String> {
+    let mut session = state.session.lock().await;
+    let active = session.as_mut().ok_or("not recording")?;
+    if active.paused_at.is_none() {
+        active.recorder.pause();
+        active.paused_at = Some(Instant::now());
+    }
+    Ok(())
+}
+
+/// Resumes a paused recording, banking the just-ended pause span so the timer stays
+/// accurate. Idempotent when not paused.
+#[tauri::command]
+pub async fn resume_recording(state: State<'_, AppState>) -> Result<(), String> {
+    let mut session = state.session.lock().await;
+    let active = session.as_mut().ok_or("not recording")?;
+    if let Some(at) = active.paused_at.take() {
+        active.paused_total += at.elapsed();
+        active.recorder.resume();
+    }
     Ok(())
 }
 
@@ -172,23 +239,81 @@ pub async fn get_transcript(
     Ok(store::load_transcript(&dir))
 }
 
+/// A segment streamed to the frontend as it is decoded, so the transcript fills in
+/// live instead of appearing all at once when the whole run finishes.
+#[derive(Serialize, Clone)]
+struct SegmentDto {
+    /// The recording being transcribed, so a listener can ignore a stale run.
+    id: String,
+    speaker: &'static str,
+    start_secs: u64,
+    text: String,
+}
+
 #[tauri::command]
-pub async fn transcribe(state: State<'_, AppState>, id: String) -> Result<Vec<LineDto>, String> {
-    let dir = state.root.join(sanitize(&id)?);
+pub async fn transcribe(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<LineDto>, String> {
+    let id = sanitize(&id)?.to_owned();
+    let dir = state.root.join(&id);
     let model_path = state.model_path.clone();
-    let language = state.language.clone();
 
     if !model_path.exists() {
         return Err(format!("model not found at {}", model_path.display()));
     }
+
+    let settings = settings::load(&state.config_dir);
+
+    // Language: the user's choice wins, then the `REMEET_LANG` override, then
+    // auto-detect. Forcing it matters — Whisper's auto-detect samples only the opening
+    // seconds and readily locks a code-switching Indonesian meeting to English.
+    let language = settings
+        .transcribe_language
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| state.language.clone());
+
+    // Speed/accuracy mode comes from settings; VAD engages only if the model is
+    // actually present, so it costs nothing to leave wired when the file is absent.
+    let options = DecodeOptions {
+        beam_size: settings.transcribe_speed.beam_size(),
+        vad_model: state.vad_model_path.clone().filter(|p| p.exists()),
+    };
 
     // Model load and inference are synchronous and heavy; keep them off the async
     // runtime's worker threads.
     tokio::task::spawn_blocking(move || {
         let recording = Recording::from_dir(&dir).map_err(|e| e.to_string())?;
         let transcriber = Transcriber::load(&model_path).map_err(|e| e.to_string())?;
-        let transcript = transcribe_recording(&transcriber, &recording, language.as_deref())
-            .map_err(|e| e.to_string())?;
+
+        // Each segment is pushed to the frontend as Whisper finalises it. Emitting is
+        // best-effort: a dropped event only costs a line in the live preview, and the
+        // saved transcript below is the source of truth.
+        let on_segment = move |speaker: Speaker, segment: LiveSegment| {
+            let _ = app.emit(
+                "transcribe-segment",
+                SegmentDto {
+                    id: id.clone(),
+                    speaker: match speaker {
+                        Speaker::Me => "me",
+                        Speaker::Them => "them",
+                    },
+                    start_secs: segment.start.as_secs(),
+                    text: segment.text,
+                },
+            );
+        };
+
+        let transcript = transcribe_recording_streaming(
+            &transcriber,
+            &recording,
+            language.as_deref(),
+            &options,
+            on_segment,
+        )
+        .map_err(|e| e.to_string())?;
 
         store::save_transcript(&dir, &transcript).map_err(|e| e.to_string())?;
         Ok(store::to_dtos(&transcript))
@@ -197,7 +322,14 @@ pub async fn transcribe(state: State<'_, AppState>, id: String) -> Result<Vec<Li
     .map_err(|_| "transcription task panicked".to_string())?
 }
 
-/// Mixes the recording's tracks into one playable file and returns its path.
+/// Returns the path to the recording's playback audio for the player.
+///
+/// The microphone track, not a mixdown of both tracks. On speakers the mic already
+/// captures the whole call — the local voice plus the remote coming back through the
+/// speakers — so it plays as one coherent take. The mixdown instead overlays the mic
+/// and system tracks, and since the remote is present on both, it doubles into an
+/// echo, slightly out of sync. The mic is a single existing WAV, so there is nothing
+/// to build.
 ///
 /// A path rather than the bytes themselves: WKWebView loads media over range
 /// requests, which the asset protocol serves and a blob URL does not — handing the
@@ -205,15 +337,18 @@ pub async fn transcribe(state: State<'_, AppState>, id: String) -> Result<Vec<Li
 #[tauri::command]
 pub async fn prepare_audio(state: State<'_, AppState>, id: String) -> Result<String, String> {
     let dir = state.root.join(sanitize(&id)?);
+    let recording = Recording::from_dir(&dir).map_err(|e| e.to_string())?;
 
-    // Decoding and resampling both tracks blocks; keep it off the async workers.
-    tokio::task::spawn_blocking(move || {
-        let recording = Recording::from_dir(&dir).map_err(|e| e.to_string())?;
-        let path = mixdown(&recording).map_err(|e| e.to_string())?;
-        Ok(path.display().to_string())
-    })
-    .await
-    .map_err(|_| "mixdown task panicked".to_string())?
+    let track = recording
+        .tracks
+        .iter()
+        .find(|t| t.track.as_str() == "microphone")
+        // A recording with no mic track (should not happen) still gets something to
+        // play rather than a dead player.
+        .or_else(|| recording.tracks.first())
+        .ok_or("recording has no audio")?;
+
+    Ok(track.path.display().to_string())
 }
 
 /// Deletes a recording: its directory and everything in it — both track WAVs, the
@@ -234,6 +369,37 @@ pub async fn delete_recording(state: State<'_, AppState>, id: String) -> Result<
     std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())
 }
 
+/// Reveals a recording's folder in the system file browser (Finder on macOS), so the
+/// raw WAVs, mixdown, and saved transcript can be opened or copied out directly.
+///
+/// The id is sanitised and confirmed to be a real recording first, so this can only
+/// ever open a directory under the recordings root — never an arbitrary path handed
+/// in from the frontend.
+#[tauri::command]
+pub async fn reveal_recording(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let dir = state.root.join(sanitize(&id)?);
+    if !dir.is_dir() {
+        return Err("recording not found".into());
+    }
+    Recording::from_dir(&dir).map_err(|_| "not a recording".to_string())?;
+
+    reveal_in_file_browser(&dir).map_err(|e| e.to_string())
+}
+
+/// Opens a directory in the platform file browser.
+#[cfg(target_os = "macos")]
+fn reveal_in_file_browser(dir: &std::path::Path) -> std::io::Result<()> {
+    std::process::Command::new("open").arg(dir).status().map(|_| ())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn reveal_in_file_browser(_dir: &std::path::Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "revealing in the file browser is only wired up on macOS",
+    ))
+}
+
 // Spaces -----------------------------------------------------------------------
 
 #[tauri::command]
@@ -247,7 +413,6 @@ pub async fn list_spaces(state: State<'_, AppState>) -> Result<Vec<Space>, Strin
 /// edits made in the main window. Without a push it would keep showing whatever the
 /// list looked like when the app started.
 fn broadcast_spaces_changed(app: &tauri::AppHandle) {
-    use tauri::Emitter;
     let _ = app.emit("spaces-changed", ());
 }
 

@@ -14,6 +14,28 @@ use serde::{Deserialize, Serialize};
 
 const FILE: &str = "settings.json";
 
+/// How transcription trades speed against accuracy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TranscribeSpeed {
+    /// Beam search on the full model: the slow, accurate default.
+    #[default]
+    Accurate,
+    /// Greedy decoding: several times faster, with a real accuracy cost — for when a
+    /// rough transcript now beats an exact one later.
+    Fast,
+}
+
+impl TranscribeSpeed {
+    /// The beam width this mode decodes with. 1 selects greedy sampling.
+    pub fn beam_size(self) -> usize {
+        match self {
+            Self::Accurate => 5,
+            Self::Fast => 1,
+        }
+    }
+}
+
 /// Everything the user can configure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -33,6 +55,12 @@ pub struct Settings {
     /// case the user forgot to record it. On by default; the whole point of the app
     /// is not missing meetings.
     pub call_reminder: bool,
+    /// Speed/accuracy trade-off for transcription. Accurate by default.
+    pub transcribe_speed: TranscribeSpeed,
+    /// Force a transcription language as an ISO code (`"id"`, `"en"`), or `None`/empty
+    /// to auto-detect. Set it when auto-detect guesses wrong — common for Indonesian
+    /// meetings that mix in English.
+    pub transcribe_language: Option<String>,
 }
 
 impl Default for Settings {
@@ -43,6 +71,8 @@ impl Default for Settings {
             codex: ProviderConfig::new(ProviderId::Codex),
             active_space: None,
             call_reminder: true,
+            transcribe_speed: TranscribeSpeed::default(),
+            transcribe_language: None,
         }
     }
 }

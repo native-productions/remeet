@@ -62,7 +62,8 @@ async fn main() -> Result<()> {
 
     let transcribe_start = Instant::now();
     let transcript =
-        transcribe_recording(&transcriber, &recording, None).context("transcribing recording")?;
+        transcribe_recording(&transcriber, &recording, None, &Default::default())
+            .context("transcribing recording")?;
     println!(
         "Transcribed in {:.1}s.",
         transcribe_start.elapsed().as_secs_f64()

@@ -10,6 +10,7 @@ import { api, errorText } from "./api";
  */
 export function useRecorder(onStopped?: () => void) {
   const [recording, setRecording] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +23,7 @@ export function useRecorder(onStopped?: () => void) {
         const status = await api.getStatus();
         if (!alive) return;
         setRecording(status.recording);
+        setPaused(status.paused);
         setElapsed(status.elapsed_secs);
       } catch {
         // A failed poll is transient; leave the last known state in place.
@@ -44,11 +46,13 @@ export function useRecorder(onStopped?: () => void) {
       if (recording) {
         await api.stopRecording();
         setRecording(false);
+        setPaused(false);
         setElapsed(0);
         onStopped?.();
       } else {
         await api.startRecording();
         setRecording(true);
+        setPaused(false);
         setElapsed(0);
       }
     } catch (e) {
@@ -58,5 +62,21 @@ export function useRecorder(onStopped?: () => void) {
     }
   }, [busy, recording, onStopped]);
 
-  return { recording, elapsed, busy, error, toggle };
+  // Pause/resume never touch the session slot, so they need no `busy` guard against
+  // toggle — the backend commands are idempotent. Optimistic local flip keeps the
+  // button responsive between one-second polls.
+  const togglePause = useCallback(async () => {
+    if (!recording) return;
+    const next = !paused;
+    setPaused(next);
+    try {
+      if (next) await api.pauseRecording();
+      else await api.resumeRecording();
+    } catch (e) {
+      setPaused(!next);
+      setError(errorText(e));
+    }
+  }, [recording, paused]);
+
+  return { recording, paused, elapsed, busy, error, toggle, togglePause };
 }

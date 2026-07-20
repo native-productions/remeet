@@ -32,6 +32,7 @@ pub struct Recorder {
     dir: PathBuf,
     capture: DualCapture,
     running: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
     collector: JoinHandle<Result<HashMap<Track, OpenTrack>>>,
 }
 
@@ -47,17 +48,20 @@ impl Recorder {
         let capture = DualCapture::start(tx).await?;
 
         let running = Arc::new(AtomicBool::new(true));
+        let paused = Arc::new(AtomicBool::new(false));
         let collector = {
             let running = Arc::clone(&running);
+            let paused = Arc::clone(&paused);
             let dir = dir.clone();
             // Writing WAVs blocks, so the collector runs off the async worker pool.
-            tokio::task::spawn_blocking(move || collect(rx, &dir, &running))
+            tokio::task::spawn_blocking(move || collect(rx, &dir, &running, &paused))
         };
 
         Ok(Self {
             dir,
             capture,
             running,
+            paused,
             collector,
         })
     }
@@ -65,6 +69,23 @@ impl Recorder {
     /// The directory the tracks are being written to.
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// Stops writing captured frames to disk without tearing down the stream.
+    ///
+    /// The capture stream stays live — only the collector stops appending. Because
+    /// each track's WAV is built frame by frame, the dropped frames leave no silent
+    /// gap: resumed audio concatenates straight onto the paused audio. Keeping the
+    /// stream up (rather than [`stop`](Self::stop)/[`start`](Self::start)) avoids a
+    /// second Screen Recording permission prompt and the multi-second ScreenCaptureKit
+    /// spin-up on every resume.
+    pub fn pause(&self) {
+        self.paused.store(true, Ordering::Release);
+    }
+
+    /// Resumes writing captured frames after a [`pause`](Self::pause).
+    pub fn resume(&self) {
+        self.paused.store(false, Ordering::Release);
     }
 
     /// Stops capturing, finalizes the WAV files, and returns the [`Recording`].
@@ -112,11 +133,15 @@ fn collect(
     rx: Receiver<AudioFrame>,
     dir: &Path,
     running: &AtomicBool,
+    paused: &AtomicBool,
 ) -> Result<HashMap<Track, OpenTrack>> {
     let mut open: HashMap<Track, OpenTrack> = HashMap::new();
 
     while running.load(Ordering::Acquire) {
         match rx.recv_timeout(POLL_INTERVAL) {
+            // While paused the frame is still received and then dropped, so the
+            // channel keeps draining rather than backing up until resume.
+            Ok(frame) if paused.load(Ordering::Acquire) => drop(frame),
             Ok(frame) => route(&mut open, dir, frame)?,
             Err(RecvTimeoutError::Timeout) => continue,
             // The capture side dropped its sender — nothing more will ever arrive.
@@ -124,8 +149,12 @@ fn collect(
         }
     }
 
-    // Flush frames that were queued between the stop signal and this point.
+    // Flush frames that were queued between the stop signal and this point. A pause
+    // in effect at stop still discards them: the user asked for this tail to be off.
     while let Ok(frame) = rx.try_recv() {
+        if paused.load(Ordering::Acquire) {
+            continue;
+        }
         route(&mut open, dir, frame)?;
     }
 

@@ -4,7 +4,10 @@ use std::path::Path;
 use std::time::Duration;
 
 use remeet_audio::Track;
-use remeet_transcribe::Transcriber;
+use remeet_transcribe::{
+    DecodeOptions, LiveSegment, Transcriber, WHISPER_SAMPLE_RATE, isolate_local,
+    prepare_for_whisper,
+};
 
 use crate::Recording;
 use crate::error::{Result, SessionError};
@@ -115,14 +118,73 @@ pub fn transcribe_recording(
     transcriber: &Transcriber,
     recording: &Recording,
     language: Option<&str>,
+    options: &DecodeOptions,
 ) -> Result<Transcript> {
-    let mut candidates = Vec::new();
+    transcribe_recording_streaming(transcriber, recording, language, options, |_, _| {})
+}
 
+/// Like [`transcribe_recording`], but calls `on_segment` with the speaker and each
+/// segment as it is decoded, before the whole recording is done.
+///
+/// The live segments arrive per track (one track finishes before the next starts) and
+/// are neither reordered nor bleed-suppressed — that only happens on the returned
+/// [`Transcript`]. This is a progress feed, not the final result.
+pub fn transcribe_recording_streaming<F>(
+    transcriber: &Transcriber,
+    recording: &Recording,
+    language: Option<&str>,
+    options: &DecodeOptions,
+    on_segment: F,
+) -> Result<Transcript>
+where
+    F: Fn(Speaker, LiveSegment) + Clone + 'static,
+{
+    // Condition every track once, up front, so language detection and transcription
+    // share the prepared audio instead of decoding each WAV twice.
+    let mut prepared: Vec<(Speaker, Vec<f32>)> = Vec::with_capacity(recording.tracks.len());
     for track in &recording.tracks {
         let speaker = Speaker::from_track(track.track);
         let (samples, channels, sample_rate) = read_wav(&track.path)?;
+        prepared.push((speaker, prepare_for_whisper(&samples, channels, sample_rate)?));
+    }
 
-        let segments = transcriber.transcribe(&samples, channels, sample_rate, language)?;
+    // Gate the system audio that bled into the microphone acoustically (remote voice
+    // out the speakers and back in the mic) down to silence, so the remote is not
+    // transcribed a second time off the mic track. The remote stays on the clean
+    // system track; the mic keeps only the local voice. Only the mic needs this — the
+    // system track is a digital capture, not an acoustic pickup.
+    if let Some(reference) = prepared
+        .iter()
+        .find(|(speaker, _)| *speaker == Speaker::Them)
+        .map(|(_, audio)| audio.clone())
+    {
+        for (speaker, audio) in prepared.iter_mut() {
+            if *speaker == Speaker::Me {
+                *audio = isolate_local(audio, &reference);
+            }
+        }
+    }
+
+    // Honour an explicit language; otherwise detect one for the whole meeting from the
+    // loudest window across every track, and force it on all of them. Whisper's own
+    // auto-detect reads only each track's opening seconds and locks it, so a track
+    // that starts silent (the local mic while the other side talks) or with English
+    // small talk gets mislabelled — and the whole side comes out wrong.
+    let detected = match language {
+        Some(explicit) => Some(explicit.to_owned()),
+        None => detect_meeting_language(transcriber, &prepared),
+    };
+    let language = detected.as_deref();
+
+    let mut candidates = Vec::new();
+    for (speaker, audio) in &prepared {
+        let speaker = *speaker;
+        // One live callback per track, carrying that track's speaker.
+        let live = on_segment.clone();
+        let segments =
+            transcriber.transcribe_prepared(audio, language, options, move |segment| {
+                live(speaker, segment)
+            })?;
         for segment in segments {
             candidates.push(Candidate {
                 speaker,
@@ -137,6 +199,70 @@ pub fn transcribe_recording(
     Ok(Transcript {
         lines: suppress_bleed(candidates),
     })
+}
+
+/// Detects the meeting's language between Indonesian and English by decoding the
+/// single loudest window across all tracks under each and keeping the more confident.
+///
+/// One decision for the whole meeting: both tracks are the same conversation, so a
+/// quiet track never has to guess from its own thin audio. `None` falls back to
+/// Whisper's per-track auto-detect when there is no audio to judge.
+fn detect_meeting_language(
+    transcriber: &Transcriber,
+    prepared: &[(Speaker, Vec<f32>)],
+) -> Option<String> {
+    // The realistic pair for these meetings; auto-detect's failure is almost always
+    // Indonesian speech mislabelled as English.
+    const CANDIDATES: [&str; 2] = ["id", "en"];
+    let window = loudest_window_across(prepared)?;
+    transcriber.detect_language(window, &CANDIDATES)
+}
+
+/// The loudest fixed-length window across every track — the best bet for clear speech
+/// to judge the language on, rather than a track's silent or small-talk opening.
+fn loudest_window_across(prepared: &[(Speaker, Vec<f32>)]) -> Option<&[f32]> {
+    const DETECT_SECS: usize = 30;
+    let window = WHISPER_SAMPLE_RATE as usize * DETECT_SECS;
+
+    let mut best: Option<(&[f32], f64)> = None;
+    for (_, audio) in prepared {
+        if audio.is_empty() {
+            continue;
+        }
+        let candidate = loudest_window(audio, window.min(audio.len()));
+        let level = energy(candidate);
+        if best.as_ref().is_none_or(|(_, top)| level > *top) {
+            best = Some((candidate, level));
+        }
+    }
+    best.map(|(window, _)| window)
+}
+
+/// The `window`-length slice of `audio` with the most energy, scanned in coarse hops.
+fn loudest_window(audio: &[f32], window: usize) -> &[f32] {
+    if audio.len() <= window {
+        return audio;
+    }
+    // ~5 s hops for a 30 s window: fine enough to land on real speech, coarse enough
+    // to stay cheap on a long track.
+    let step = (window / 6).max(1);
+    let mut best_start = 0;
+    let mut best = f64::MIN;
+    let mut start = 0;
+    while start + window <= audio.len() {
+        let level = energy(&audio[start..start + window]);
+        if level > best {
+            best = level;
+            best_start = start;
+        }
+        start += step;
+    }
+    &audio[best_start..best_start + window]
+}
+
+/// Sum of squares — relative loudness, enough to compare windows.
+fn energy(samples: &[f32]) -> f64 {
+    samples.iter().map(|&s| (s as f64) * (s as f64)).sum()
 }
 
 /// A transcribed segment plus the confidence it was heard with, before bleed

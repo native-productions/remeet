@@ -25,6 +25,10 @@ const FRAME_MS: usize = 30;
 const MAX_LAG_FRAMES: isize = 40;
 /// How far above the estimated bleed level the mic must rise to count as local speech.
 const MARGIN: f32 = 2.5;
+/// Frames the gate stays open after speech ends. Long enough (~150 ms) to bridge the
+/// quiet gaps between words so a sentence is not chopped into pieces, short enough not
+/// to hold open across a long stretch of pure bleed.
+const HANGOVER_FRAMES: u32 = 5;
 const EPS: f32 = 1e-9;
 
 /// Returns the mic with everything but the local voice silenced, using `reference`
@@ -63,17 +67,26 @@ pub fn isolate_local(mic: &[f32], reference: &[f32]) -> Vec<f32> {
     };
 
     // A frame is local speech when the mic clears both a quiet-noise floor and the
-    // expected bleed level by a margin.
-    let floor = percentile(&mic_level, 0.40);
+    // expected bleed level by a margin. The floor sits low — near the silence level,
+    // not the median — so quiet syllables of the local voice are kept, not clipped;
+    // its only job is to drop true silence.
+    let floor = percentile(&mic_level, 0.15);
     let mut keep: Vec<bool> = (0..frames)
         .map(|i| mic_level[i] > floor.max(bleed * ref_level[i] * MARGIN))
         .collect();
 
-    // Hangover: hold one frame past the end of speech so trailing syllables at lower
-    // level are not clipped.
-    for i in 1..frames {
-        if keep[i - 1] && !keep[i] && mic_level[i] > floor * 0.7 {
+    // Hangover: hold the gate open for a couple of frames past the end of speech so a
+    // trailing syllable at lower level is not clipped. Bounded and driven off the
+    // original decision, not the running one — otherwise each held frame would re-open
+    // the next and the gate would never close over a long stretch of bleed.
+    let decided = keep.clone();
+    let mut hold = 0u32;
+    for i in 0..frames {
+        if decided[i] {
+            hold = HANGOVER_FRAMES;
+        } else if hold > 0 {
             keep[i] = true;
+            hold -= 1;
         }
     }
 

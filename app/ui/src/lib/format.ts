@@ -25,6 +25,15 @@ export function folderName(unixSecs: number): string {
   return `Recording - ${stamp}`;
 }
 
+/**
+ * What a recording is called in a list: its user-given name, or the recorded-at
+ * timestamp when it has none. The one place the fallback rule lives, so every list
+ * agrees on what an unnamed recording reads as.
+ */
+export function recordingLabel(rec: { name: string | null; created: number }): string {
+  return rec.name?.trim() || folderName(rec.created);
+}
+
 /** Coarse "how long ago", enough for a list; exact times live in the transcript. */
 export function relativeTime(unixSecs: number): string {
   if (!unixSecs) return "";

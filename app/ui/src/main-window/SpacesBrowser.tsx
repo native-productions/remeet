@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { api, DEFAULT_SPACE, errorText, type Recording, type Space } from "../lib/api";
 import { RevealGlyph } from "../components/RevealGlyph";
-import { duration, folderName, relativeTime } from "../lib/format";
+import { RenameGlyph } from "../components/RenameGlyph";
+import { duration, folderName, recordingLabel, relativeTime } from "../lib/format";
 
 export type Opened = { recording: Recording; view: "transcript" | "summary" };
 
@@ -189,6 +190,7 @@ export function SpacesBrowser({
                   }
                   onOpen={onOpen}
                   onDeleted={onRecordingsChanged}
+                  onRenamed={onRecordingsChanged}
                 />
               </li>
             ))}
@@ -215,6 +217,7 @@ function SpaceRecordingRow({
   onToggle,
   onOpen,
   onDeleted,
+  onRenamed,
 }: {
   recording: Recording;
   isOpen: boolean;
@@ -223,10 +226,19 @@ function SpaceRecordingRow({
   onToggle: () => void;
   onOpen: (opened: Opened) => void;
   onDeleted: () => void;
+  onRenamed: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  /** Seeded with the current custom name only — an empty field means "clear it", and
+   *  the placeholder shows the timestamp the label falls back to. */
+  const [draft, setDraft] = useState("");
+  /** Commit-on-blur and commit-on-submit both fire when the field loses focus, and
+   *  Escape cancels through the same blur. This latches once per edit so the rename
+   *  is handled exactly once, not saved twice or saved on top of a cancel. */
+  const handled = useRef(false);
 
   const remove = async () => {
     setDeleting(true);
@@ -239,6 +251,32 @@ function SpaceRecordingRow({
     }
   };
 
+  const startRename = () => {
+    handled.current = false;
+    setDraft(recording.name ?? "");
+    setError(null);
+    setRenaming(true);
+  };
+
+  const cancelRename = () => {
+    handled.current = true;
+    setRenaming(false);
+  };
+
+  const saveRename = async () => {
+    if (handled.current) return;
+    handled.current = true;
+    try {
+      // Blank clears the label back to the timestamp; the backend trims either way.
+      await api.renameRecording(recording.id, draft.trim() || null);
+      setRenaming(false);
+      onRenamed();
+    } catch (e) {
+      setError(errorText(e));
+      handled.current = false; // let the user try again
+    }
+  };
+
   return (
     <>
       <div
@@ -246,22 +284,59 @@ function SpaceRecordingRow({
           confirming ? " is-confirming" : ""
         }`}
       >
-        <button
-          className="folder-hit"
-          type="button"
-          aria-expanded={isOpen}
-          onClick={onToggle}
-        >
-          <span className="folder-caret" aria-hidden="true" />
-          <span className="folder-main">
-            <span className="folder-name">{folderName(recording.created)}</span>
-            <span className="folder-sub">
-              {duration(recording.duration_secs)} · {relativeTime(recording.created)}
+        {renaming ? (
+          <form
+            className="rename-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void saveRename();
+            }}
+          >
+            <input
+              className="input rename-input"
+              type="text"
+              autoFocus
+              // The timestamp the label falls back to, so clearing the field reads as
+              // "back to the default" rather than a blank name.
+              placeholder={folderName(recording.created)}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") cancelRename();
+              }}
+              onBlur={() => void saveRename()}
+            />
+          </form>
+        ) : (
+          <button
+            className="folder-hit"
+            type="button"
+            aria-expanded={isOpen}
+            onClick={onToggle}
+          >
+            <span className="folder-caret" aria-hidden="true" />
+            <span className="folder-main">
+              <span className="folder-name">{recordingLabel(recording)}</span>
+              <span className="folder-sub">
+                {duration(recording.duration_secs)} · {relativeTime(recording.created)}
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+        )}
 
-        {!confirming && (
+        {!confirming && !renaming && (
+          <button
+            className="row-rename"
+            type="button"
+            aria-label="Rename recording"
+            title="Rename"
+            onClick={startRename}
+          >
+            <RenameGlyph />
+          </button>
+        )}
+
+        {!confirming && !renaming && (
           <button
             className="row-reveal"
             type="button"
@@ -273,7 +348,7 @@ function SpaceRecordingRow({
           </button>
         )}
 
-        {!confirming && (
+        {!confirming && !renaming && (
           <button
             className="row-del"
             type="button"

@@ -15,6 +15,8 @@ export type Recording = {
   summarized: boolean;
   /** Space id, or null for the default space. */
   space: string | null;
+  /** User-given label, or null to fall back to the recorded-at timestamp. */
+  name: string | null;
 };
 
 /**
@@ -81,6 +83,12 @@ export type Settings = {
   transcribe_speed: "accurate" | "fast";
   /** Forced transcription language (ISO code), or null to auto-detect. */
   transcribe_language: string | null;
+  /** Suppress background noise on the microphone before transcribing. */
+  mic_denoise: boolean;
+  /** Which engine transcribes: built-in whisper.cpp, or the external whisper CLI. */
+  transcribe_engine: "builtin" | "whisper-cli";
+  /** External whisper tool location and model, used when the engine is the CLI. */
+  whisper_cli: { bin: string; model: string };
 };
 
 export type Probe = {
@@ -110,7 +118,9 @@ export const api = {
   stopRecording: () => invoke<Recording>("stop_recording"),
   getTranscript: (id: string) => invoke<Line[] | null>("get_transcript", { id }),
   transcribe: (id: string) => invoke<Line[]>("transcribe", { id }),
-  /** Returns the recording's playback audio path — the microphone track. */
+  /** Asks the in-flight transcription to stop; the `transcribe` call then rejects. */
+  cancelTranscribe: () => invoke<void>("cancel_transcribe"),
+  /** Builds if needed and returns the recording's playback mix path. */
   prepareAudio: (id: string) => invoke<string>("prepare_audio", { id }),
   /** Permanent: removes the audio, the mixdown, and the transcript. */
   deleteRecording: (id: string) => invoke<void>("delete_recording", { id }),
@@ -121,6 +131,8 @@ export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
   settingsPath: () => invoke<string>("settings_path"),
+  /** Best-effort path to the external `whisper` tool, or null if not found. */
+  detectWhisper: () => invoke<string | null>("detect_whisper"),
   /** Cheap: checks the binary runs. Says nothing about being logged in. */
   probeProvider: (provider: ProviderId) => invoke<Probe>("probe_provider", { provider }),
   /** Costs tokens: a real round trip, the only proof of login and model access. */
@@ -139,6 +151,9 @@ export const api = {
   setActiveSpace: (space: string | null) => invoke<void>("set_active_space", { space }),
   moveRecording: (id: string, space: string | null) =>
     invoke<void>("move_recording", { id, space }),
+  /** Sets a recording's label; null (or blank) clears it back to the timestamp. */
+  renameRecording: (id: string, name: string | null) =>
+    invoke<void>("rename_recording", { id, name }),
 };
 
 /** Tauri errors arrive as plain strings, but a thrown value is still `unknown`. */

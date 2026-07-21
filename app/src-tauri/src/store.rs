@@ -29,6 +29,8 @@ pub struct RecordingDto {
     pub summarized: bool,
     /// Space id this recording is filed under, or `None` for the default space.
     pub space: Option<String>,
+    /// A user-given label, or `None` to fall back to the recorded-at timestamp.
+    pub name: Option<String>,
 }
 
 /// A transcribed line, flattened for the frontend. Round-trips through
@@ -52,13 +54,15 @@ impl RecordingDto {
             .max()
             .unwrap_or(0);
 
+        let meta = crate::spaces::load_meta(dir);
         Some(Self {
             id,
             duration_secs,
             created: dir_created(dir),
             transcribed: dir.join(TRANSCRIPT_JSON).exists(),
             summarized: dir.join(SUMMARY_JSON).exists(),
-            space: crate::spaces::load_meta(dir).space,
+            space: meta.space,
+            name: meta.name,
         })
     }
 }

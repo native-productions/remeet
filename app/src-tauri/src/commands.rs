@@ -7,19 +7,21 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use remeet_ai::{Probe, ProviderId, Summary};
 use remeet_session::{
-    LiveSegment, Recorder, Recording, Speaker, transcribe_recording_streaming,
+    LiveSegment, Recorder, Recording, Speaker, Transcript, TranscriptLine, mixdown,
+    transcribe_recording_streaming,
 };
 use remeet_transcribe::{DecodeOptions, Transcriber};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 
-use crate::settings::{self, Settings};
+use crate::settings::{self, Settings, TranscribeEngine};
+use crate::whisper_cli;
 use crate::spaces::{self, Space};
 use crate::store::{self, LineDto, RecordingDto};
 
@@ -39,6 +41,14 @@ pub struct AppState {
     /// which runs on a CoreAudio thread and cannot await the async `session` mutex —
     /// can tell Remeet's own capture apart from another app's call.
     recording: Arc<AtomicBool>,
+    /// Flips to `true` to ask the in-flight transcription to stop; reset at the start of
+    /// each run. The built-in decoder polls it through its abort callback; the CLI path
+    /// checks it around the child's output.
+    transcribe_cancel: Arc<AtomicBool>,
+    /// PID of the running external `whisper` child, or `0` when none. Held so
+    /// [`cancel_transcribe`] can signal it — killing the process is the only way to stop
+    /// a decode already blocked inside the tool.
+    transcribe_pid: Arc<AtomicU32>,
 }
 
 /// The in-progress recording, if any.
@@ -104,6 +114,8 @@ impl AppState {
             vad_model_path,
             config_dir,
             recording: Arc::new(AtomicBool::new(false)),
+            transcribe_cancel: Arc::new(AtomicBool::new(false)),
+            transcribe_pid: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -165,7 +177,7 @@ pub async fn start_recording(state: State<'_, AppState>) -> Result<(), String> {
     // session that never gets stopped cleanly should still land where it was meant
     // to. A failed write only costs the filing, so it must not abort the recording.
     let space = settings::load(&state.config_dir).active_space;
-    let _ = spaces::save_meta(&dir, &spaces::RecordingMeta { space });
+    let _ = spaces::save_meta(&dir, &spaces::RecordingMeta { space, name: None });
 
     *session = Some(Active {
         recorder,
@@ -220,13 +232,15 @@ pub async fn stop_recording(state: State<'_, AppState>) -> Result<RecordingDto, 
         .max()
         .unwrap_or(0);
 
+    let meta = spaces::load_meta(&recording.dir);
     Ok(RecordingDto {
         id,
         duration_secs,
         created: now_secs(),
         transcribed: false,
         summarized: false,
-        space: spaces::load_meta(&recording.dir).space,
+        space: meta.space,
+        name: meta.name,
     })
 }
 
@@ -258,28 +272,92 @@ pub async fn transcribe(
 ) -> Result<Vec<LineDto>, String> {
     let id = sanitize(&id)?.to_owned();
     let dir = state.root.join(&id);
-    let model_path = state.model_path.clone();
-
-    if !model_path.exists() {
-        return Err(format!("model not found at {}", model_path.display()));
-    }
-
     let settings = settings::load(&state.config_dir);
 
+    // Clear any cancel left over from a previous run before this one starts.
+    state.transcribe_cancel.store(false, Ordering::SeqCst);
+    state.transcribe_pid.store(0, Ordering::SeqCst);
+
     // Language: the user's choice wins, then the `REMEET_LANG` override, then
-    // auto-detect. Forcing it matters — Whisper's auto-detect samples only the opening
-    // seconds and readily locks a code-switching Indonesian meeting to English.
+    // auto-detect. Forcing it matters — auto-detect samples only the opening seconds
+    // and readily locks a code-switching Indonesian meeting to English.
     let language = settings
         .transcribe_language
         .clone()
         .filter(|s| !s.trim().is_empty())
         .or_else(|| state.language.clone());
 
+    // The external whisper tool runs on the single gated mixdown — no per-speaker
+    // split, so every line is the local side — but its decoding is cleaner.
+    if settings.transcribe_engine == TranscribeEngine::WhisperCli {
+        let bin = settings.whisper_cli.bin.clone();
+        let model = settings.whisper_cli.model.clone();
+        let cancel = state.transcribe_cancel.clone();
+        let pid_slot = state.transcribe_pid.clone();
+        let app = app.clone();
+        let ev_id = id.clone();
+        return tokio::task::spawn_blocking(move || {
+            let recording = Recording::from_dir(&dir).map_err(|e| e.to_string())?;
+            let wav = mixdown(&recording).map_err(|e| e.to_string())?;
+
+            // Register the child PID so a cancel can signal it; the CLI runs on the
+            // single mixdown, so every line is the local side.
+            let register = {
+                let pid_slot = pid_slot.clone();
+                move |pid: u32| pid_slot.store(pid, Ordering::SeqCst)
+            };
+            let emit = move |segment: whisper_cli::Segment| {
+                let _ = app.emit(
+                    "transcribe-segment",
+                    SegmentDto {
+                        id: ev_id.clone(),
+                        speaker: "me",
+                        start_secs: segment.start_secs as u64,
+                        text: segment.text,
+                    },
+                );
+            };
+
+            let result =
+                whisper_cli::transcribe(&bin, &model, language.as_deref(), &wav, register, emit);
+            pid_slot.store(0, Ordering::SeqCst);
+
+            // A cancel kills the child, which surfaces as a failed run; report it as a
+            // clean cancellation so the UI drops back rather than showing an error.
+            if cancel.load(Ordering::SeqCst) {
+                return Err("cancelled".to_string());
+            }
+
+            let lines = result?
+                .into_iter()
+                .map(|s| TranscriptLine {
+                    speaker: Speaker::Me,
+                    start: Duration::from_secs_f64(s.start_secs),
+                    end: Duration::from_secs_f64(s.end_secs),
+                    text: s.text,
+                })
+                .collect();
+            let transcript = Transcript { lines };
+            store::save_transcript(&dir, &transcript).map_err(|e| e.to_string())?;
+            Ok(store::to_dtos(&transcript))
+        })
+        .await
+        .map_err(|_| "transcription task panicked".to_string())?;
+    }
+
+    // Built-in whisper.cpp engine, per-speaker tracks.
+    let model_path = state.model_path.clone();
+    if !model_path.exists() {
+        return Err(format!("model not found at {}", model_path.display()));
+    }
     // Speed/accuracy mode comes from settings; VAD engages only if the model is
     // actually present, so it costs nothing to leave wired when the file is absent.
+    let cancel = state.transcribe_cancel.clone();
     let options = DecodeOptions {
         beam_size: settings.transcribe_speed.beam_size(),
         vad_model: state.vad_model_path.clone().filter(|p| p.exists()),
+        denoise_mic: settings.mic_denoise,
+        cancel: Some(cancel.clone()),
     };
 
     // Model load and inference are synchronous and heavy; keep them off the async
@@ -306,14 +384,22 @@ pub async fn transcribe(
             );
         };
 
-        let transcript = transcribe_recording_streaming(
+        let transcript = match transcribe_recording_streaming(
             &transcriber,
             &recording,
             language.as_deref(),
             &options,
             on_segment,
-        )
-        .map_err(|e| e.to_string())?;
+        ) {
+            Ok(transcript) => transcript,
+            // An abort surfaces here as a decode error; if we asked for it, report a
+            // clean cancellation instead of a failure.
+            Err(e) if cancel.load(Ordering::SeqCst) => {
+                let _ = e;
+                return Err("cancelled".to_string());
+            }
+            Err(e) => return Err(e.to_string()),
+        };
 
         store::save_transcript(&dir, &transcript).map_err(|e| e.to_string())?;
         Ok(store::to_dtos(&transcript))
@@ -322,14 +408,59 @@ pub async fn transcribe(
     .map_err(|_| "transcription task panicked".to_string())?
 }
 
-/// Returns the path to the recording's playback audio for the player.
+/// Asks the running transcription to stop.
 ///
-/// The microphone track, not a mixdown of both tracks. On speakers the mic already
-/// captures the whole call — the local voice plus the remote coming back through the
-/// speakers — so it plays as one coherent take. The mixdown instead overlays the mic
-/// and system tracks, and since the remote is present on both, it doubles into an
-/// echo, slightly out of sync. The mic is a single existing WAV, so there is nothing
-/// to build.
+/// Sets the shared cancel flag the built-in decoder polls, and signals the external
+/// `whisper` child if one is running — killing it is the only way to interrupt a decode
+/// already blocked inside the tool. Either way the run then reports as cancelled.
+#[tauri::command]
+pub async fn cancel_transcribe(state: State<'_, AppState>) -> Result<(), String> {
+    state.transcribe_cancel.store(true, Ordering::SeqCst);
+    let pid = state.transcribe_pid.load(Ordering::SeqCst);
+    if pid != 0 {
+        // SIGTERM lets whisper wind down; the run then surfaces as cancelled. whisper
+        // installs no custom handler, so the default disposition terminates it.
+        unsafe {
+            libc::kill(pid as libc::pid_t, libc::SIGTERM);
+        }
+    }
+    Ok(())
+}
+
+/// Best-effort location of the external `whisper` tool, so the CLI engine can be set
+/// up without the user hunting for the path: `PATH` first, then the common virtualenv
+/// spots (the tool is usually installed into one). `None` when nothing is found.
+#[tauri::command]
+pub async fn detect_whisper() -> Result<Option<String>, String> {
+    if let Ok(out) = std::process::Command::new("which").arg("whisper").output()
+        && out.status.success()
+    {
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        if !path.is_empty() {
+            return Ok(Some(path));
+        }
+    }
+
+    let home = home_dir();
+    for candidate in [
+        "whisper/.venv/bin/whisper",
+        "whisper-openai/.venv/bin/whisper",
+        ".venv/bin/whisper",
+    ] {
+        let path = home.join(candidate);
+        if path.exists() {
+            return Ok(Some(path.display().to_string()));
+        }
+    }
+    Ok(None)
+}
+
+/// Builds (or reuses) the recording's playback mix and returns its path.
+///
+/// The mix gates the microphone against the system track before combining them, so
+/// the remote's voice — clean on the system track, and bleeding into the mic through
+/// the speakers — plays once, not twice as an out-of-sync echo. The result is a clean
+/// two-sided conversation: the local voice from the mic, the remote from the system.
 ///
 /// A path rather than the bytes themselves: WKWebView loads media over range
 /// requests, which the asset protocol serves and a blob URL does not — handing the
@@ -337,18 +468,16 @@ pub async fn transcribe(
 #[tauri::command]
 pub async fn prepare_audio(state: State<'_, AppState>, id: String) -> Result<String, String> {
     let dir = state.root.join(sanitize(&id)?);
-    let recording = Recording::from_dir(&dir).map_err(|e| e.to_string())?;
 
-    let track = recording
-        .tracks
-        .iter()
-        .find(|t| t.track.as_str() == "microphone")
-        // A recording with no mic track (should not happen) still gets something to
-        // play rather than a dead player.
-        .or_else(|| recording.tracks.first())
-        .ok_or("recording has no audio")?;
-
-    Ok(track.path.display().to_string())
+    // Decoding, resampling, and gating both tracks blocks; keep it off the async
+    // workers.
+    tokio::task::spawn_blocking(move || {
+        let recording = Recording::from_dir(&dir).map_err(|e| e.to_string())?;
+        let path = mixdown(&recording).map_err(|e| e.to_string())?;
+        Ok(path.display().to_string())
+    })
+    .await
+    .map_err(|_| "mixdown task panicked".to_string())?
 }
 
 /// Deletes a recording: its directory and everything in it — both track WAVs, the
@@ -513,7 +642,7 @@ pub async fn set_active_space(
     Ok(())
 }
 
-/// Re-files an existing recording.
+/// Re-files an existing recording, keeping any custom name it already carries.
 #[tauri::command]
 pub async fn move_recording(
     state: State<'_, AppState>,
@@ -524,7 +653,34 @@ pub async fn move_recording(
     if !dir.is_dir() {
         return Err("recording not found".into());
     }
-    spaces::save_meta(&dir, &spaces::RecordingMeta { space }).map_err(|e| e.to_string())
+    // Read-modify-write so the two independent fields of the meta don't clobber each
+    // other: a move must not wipe the recording's name, and a rename must not re-file it.
+    let mut meta = spaces::load_meta(&dir);
+    meta.space = space;
+    spaces::save_meta(&dir, &meta).map_err(|e| e.to_string())
+}
+
+/// Renames a recording, or clears the label back to its recorded-at timestamp.
+///
+/// A blank or whitespace-only name resets to `None` rather than storing an empty
+/// string, so the UI's timestamp fallback takes over. The directory id is untouched —
+/// only the label in `meta.json` changes.
+#[tauri::command]
+pub async fn rename_recording(
+    state: State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+) -> Result<(), String> {
+    let dir = state.root.join(sanitize(&id)?);
+    if !dir.is_dir() {
+        return Err("recording not found".into());
+    }
+    let name = name
+        .map(|n| n.trim().to_owned())
+        .filter(|n| !n.is_empty());
+    let mut meta = spaces::load_meta(&dir);
+    meta.name = name;
+    spaces::save_meta(&dir, &meta).map_err(|e| e.to_string())
 }
 
 // AI providers ---------------------------------------------------------------

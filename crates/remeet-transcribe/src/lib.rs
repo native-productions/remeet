@@ -23,10 +23,13 @@
 //! ```
 
 mod audio;
+mod denoise;
 mod error;
 mod isolate;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use whisper_rs::{
@@ -35,6 +38,7 @@ use whisper_rs::{
 };
 
 pub use audio::{WHISPER_SAMPLE_RATE, downmix_to_mono, prepare_for_whisper};
+pub use denoise::denoise;
 pub use isolate::isolate_local;
 pub use error::{Result, TranscribeError};
 
@@ -49,14 +53,24 @@ pub struct DecodeOptions {
     /// decoding — a large win on meeting tracks, which are mostly silence on each
     /// side. `None` transcribes the whole track.
     pub vad_model: Option<PathBuf>,
+    /// Suppress background noise on the microphone track before transcribing — for
+    /// recording in a café or other noisy place.
+    pub denoise_mic: bool,
+    /// Flips to `true` to abort the in-flight decode. whisper.cpp polls this between
+    /// compute steps and bails when it flips, so a cancelled run stops promptly instead
+    /// of grinding through the rest of the track. `None` never cancels.
+    pub cancel: Option<Arc<AtomicBool>>,
 }
 
 impl Default for DecodeOptions {
-    /// The accurate default: beam search, no VAD.
+    /// The accurate default: beam search, no VAD, no mic noise suppression (it can
+    /// clip a quiet voice, so it is opt-in for noisy places).
     fn default() -> Self {
         Self {
             beam_size: 5,
             vad_model: None,
+            denoise_mic: false,
+            cancel: None,
         }
     }
 }
@@ -212,6 +226,13 @@ impl Transcriber {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
+
+        // Let a caller abort a long decode. whisper.cpp calls this between compute
+        // steps; returning true stops the run, which surfaces here as an error the
+        // caller maps to a cancellation.
+        if let Some(cancel) = options.cancel.clone() {
+            params.set_abort_callback_safe(move || cancel.load(Ordering::Relaxed));
+        }
 
         // Fires once per segment as it is finalised, so a caller can show the
         // transcript filling in rather than a single blocking wait.

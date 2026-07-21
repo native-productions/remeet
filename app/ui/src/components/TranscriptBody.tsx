@@ -15,6 +15,8 @@ type Props = {
   /** Segments arriving live while `state` is `working`; empty otherwise. */
   live?: Line[];
   onTranscribe: () => void;
+  /** Stops an in-progress run. Absent when there is nothing to cancel. */
+  onCancel?: () => void;
 };
 
 /** One rendered transcript line, shared by the final view and the live preview. */
@@ -58,7 +60,7 @@ function LiveFeed({ lines }: { lines: Line[] }) {
 }
 
 /** The transcript itself, or whatever stands in for it while there isn't one. */
-export function TranscriptBody({ state, live = [], onTranscribe }: Props) {
+export function TranscriptBody({ state, live = [], onTranscribe, onCancel }: Props) {
   switch (state.kind) {
     case "loading":
       return <div className="tbody" />;
@@ -83,6 +85,13 @@ export function TranscriptBody({ state, live = [], onTranscribe }: Props) {
                 <span className="spin" />
                 Transcribing on this Mac
               </div>
+            </div>
+          )}
+          {onCancel && (
+            <div className="cancel-row">
+              <button className="cancel-btn" type="button" onClick={onCancel}>
+                Cancel
+              </button>
             </div>
           )}
         </div>

@@ -15,6 +15,7 @@ mod commands;
 mod settings;
 mod spaces;
 mod store;
+mod whisper_cli;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -47,6 +48,7 @@ pub fn run() {
             commands::stop_recording,
             commands::get_transcript,
             commands::transcribe,
+            commands::cancel_transcribe,
             commands::prepare_audio,
             commands::delete_recording,
             commands::reveal_recording,
@@ -54,6 +56,7 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::settings_path,
+            commands::detect_whisper,
             commands::probe_provider,
             commands::test_provider,
             commands::get_summary,
@@ -64,6 +67,7 @@ pub fn run() {
             commands::delete_space,
             commands::set_active_space,
             commands::move_recording,
+            commands::rename_recording,
         ])
         .setup(|app| {
             // State is built here rather than in the builder chain because the app

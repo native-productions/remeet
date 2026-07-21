@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use remeet_audio::Track;
 use remeet_transcribe::{
-    DecodeOptions, LiveSegment, Transcriber, WHISPER_SAMPLE_RATE, isolate_local,
+    DecodeOptions, LiveSegment, Transcriber, WHISPER_SAMPLE_RATE, denoise, isolate_local,
     prepare_for_whisper,
 };
 
@@ -44,7 +44,7 @@ mod bleed {
 ///
 /// This is [`remeet_audio::Track`] restated in the vocabulary of a transcript: the
 /// system track is the remote participants, the microphone track is the local user.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Speaker {
     /// The local user (microphone track).
     Me,
@@ -145,6 +145,17 @@ where
     for track in &recording.tracks {
         let speaker = Speaker::from_track(track.track);
         let (samples, channels, sample_rate) = read_wav(&track.path)?;
+
+        // Suppress room noise on the microphone before anything else, so the café din
+        // never reaches Whisper. Only the mic — the system track is a clean digital
+        // capture with no acoustic noise. Skipped for multi-channel audio, which the
+        // mono noise model does not take.
+        let samples = if options.denoise_mic && speaker == Speaker::Me && channels == 1 {
+            denoise(&samples, sample_rate)
+        } else {
+            samples
+        };
+
         prepared.push((speaker, prepare_for_whisper(&samples, channels, sample_rate)?));
     }
 
@@ -287,6 +298,13 @@ struct Candidate {
 /// confidence alone is just a mumbled line. Together they are an echo of the clearer
 /// copy on the other track.
 fn suppress_bleed(candidates: Vec<Candidate>) -> Vec<TranscriptLine> {
+    // Drop hallucinations before anything else. Whisper invents a common phrase over a
+    // whole non-speech window ("terima kasih", "sambil share design") — a handful of
+    // words spread across many seconds. Real speech is dense, so a long segment with
+    // very few words per second is not real. High confidence does not save it: Whisper
+    // is sure of these, and VAD does not remove them, so this is the reliable signal.
+    let candidates: Vec<Candidate> = candidates.into_iter().filter(|c| !is_sparse(c)).collect();
+
     let mut keep = vec![true; candidates.len()];
 
     for i in 0..candidates.len() {
@@ -317,7 +335,39 @@ fn suppress_bleed(candidates: Vec<Candidate>) -> Vec<TranscriptLine> {
         .collect();
 
     lines.sort_by_key(|line| line.start);
+
+    // Collapse repeats: Whisper loops a phrase on silence and reports it many times for
+    // the same speaker, scattered across the track ("gitu / gitu / gitu"). Keep the
+    // first, drop the rest — a genuine line repeated word-for-word far apart is rare,
+    // and losing it costs less than keeping the loop.
+    let mut seen: HashSet<(Speaker, String)> = HashSet::new();
+    lines.retain(|line| seen.insert((line.speaker, normalize(&line.text))));
+
     lines
+}
+
+/// Whether a segment is too sparse to be real speech — a few words stretched over a
+/// long span, the shape of a hallucination on non-speech audio.
+fn is_sparse(candidate: &Candidate) -> bool {
+    const MIN_SECS: f64 = 4.0;
+    const MIN_WORDS_PER_SEC: f64 = 0.4;
+
+    let seconds = candidate.end.saturating_sub(candidate.start).as_secs_f64();
+    if seconds <= MIN_SECS {
+        return false;
+    }
+    let words = candidate.text.split_whitespace().count() as f64;
+    words / seconds < MIN_WORDS_PER_SEC
+}
+
+/// Lowercased, punctuation-stripped words joined by single spaces — a canonical form
+/// for comparing whether two lines say the same thing.
+fn normalize(text: &str) -> String {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Whether `echo` is a leaked copy of `source` that should be dropped in its favour.

@@ -225,6 +225,7 @@ export function MainApp() {
                     state={transcript.state}
                     live={transcript.live}
                     onTranscribe={() => void transcript.transcribe()}
+                    onCancel={() => void transcript.cancel()}
                   />
                 ) : (
                   <SummaryBody

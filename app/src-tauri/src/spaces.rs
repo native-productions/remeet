@@ -51,6 +51,11 @@ pub struct RecordingMeta {
     /// Space id, or `None` for the default space.
     #[serde(default)]
     pub space: Option<String>,
+    /// A user-given label, or `None` to fall back to the recorded-at timestamp. Stored
+    /// beside the audio like the filing, not in the directory name: the `session-<unix>`
+    /// id must stay stable so a rename never orphans a saved transcript or summary.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 const META: &str = "meta.json";
@@ -144,10 +149,12 @@ mod tests {
             dir.path(),
             &RecordingMeta {
                 space: Some("sp-7".to_owned()),
+                name: Some("Kickoff call".to_owned()),
             },
         )
         .expect("save");
         assert_eq!(load_meta(dir.path()).space.as_deref(), Some("sp-7"));
+        assert_eq!(load_meta(dir.path()).name.as_deref(), Some("Kickoff call"));
     }
 
     #[test]

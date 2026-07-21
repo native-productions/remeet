@@ -94,8 +94,8 @@ export function useAudioPlayer(recordingId: string | null) {
       setLoading(true);
       setError(null);
       try {
-        // Resolves the recording's playback file (the microphone track) lazily, on
-        // first play rather than every time a recording is opened.
+        // The playback mix is built on first play rather than every time a recording
+        // is opened, then cached next to the tracks.
         const path = await api.prepareAudio(recordingId);
         audio.src = convertFileSrc(path);
         audio.playbackRate = SPEEDS[speedIndex] ?? 1;

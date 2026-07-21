@@ -392,6 +392,10 @@ body[data-window="main"] .player {
   display: flex;
   flex: 1;
   min-width: 0;
+  gap: 8px;
+  /* Anchor the caret to the first line of the name, not the vertical centre — a name
+     that wraps to two lines otherwise leaves the triangle floating mid-row. */
+  align-items: flex-start;
   padding: 0;
   border: none;
   background: none;
@@ -446,8 +450,56 @@ body[data-window="main"] .player {
 .rec-folder:hover .row-del,
 .rec-folder:focus-within .row-del,
 .rec-folder:hover .row-reveal,
-.rec-folder:focus-within .row-reveal {
+.rec-folder:focus-within .row-reveal,
+.rec-folder:hover .row-rename,
+.rec-folder:focus-within .row-rename {
   opacity: 1;
+}
+
+/* Rename shares the reveal button's quiet-until-hover, neutral treatment: editing a
+   label is no more destructive than opening the folder. */
+.row-rename {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--fast) var(--ease), background var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+
+.row-rename:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.row-rename:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--border-strong);
+  outline-offset: 1px;
+}
+
+/* Inline rename: the field takes the name's place in the row, same footprint so the
+   row does not jump when it swaps in. */
+.rename-form {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.rename-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  font-size: var(--text-sm);
 }
 
 /* Disclosure triangle, rotated rather than swapped for a second glyph. */
@@ -455,7 +507,9 @@ body[data-window="main"] .player {
   flex: none;
   width: 0;
   height: 0;
-  margin-left: 2px;
+  /* Nudged down to sit on the first text line, which `align-items: flex-start` on the
+     hit target no longer does for us. */
+  margin-top: 5px;
   border-style: solid;
   border-width: 4px 0 4px 5px;
   border-color: transparent transparent transparent var(--text-muted);

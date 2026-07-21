@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import {
@@ -29,6 +29,10 @@ export function useTranscript(recording: Recording | null, onTranscribed?: () =>
   /** Segments streamed from the backend while a run is in progress, for a live
    *  preview. Arrives per track and unordered; the saved result is the truth. */
   const [live, setLive] = useState<Line[]>([]);
+  /** Set while a cancel is in flight, so the rejected `transcribe` call can tell a
+   *  user cancellation apart from a real failure. A ref, not state: it is read inside
+   *  the same async closure and must not wait for a re-render. */
+  const cancelled = useRef(false);
 
   useEffect(() => {
     if (!recording) return;
@@ -59,6 +63,7 @@ export function useTranscript(recording: Recording | null, onTranscribed?: () =>
   const transcribe = useCallback(async () => {
     if (!recording) return;
     const id = recording.id;
+    cancelled.current = false;
     setLive([]);
     setState({ kind: "working" });
 
@@ -79,7 +84,14 @@ export function useTranscript(recording: Recording | null, onTranscribed?: () =>
       setState({ kind: "ready", lines });
       onTranscribed?.();
     } catch (e) {
-      setState({ kind: "failed", message: errorText(e) });
+      if (cancelled.current) {
+        // A cancelled run leaves any prior transcript on disk untouched, so restore it
+        // rather than showing an error.
+        const prior = await api.getTranscript(id).catch(() => null);
+        setState(prior?.length ? { kind: "ready", lines: prior } : { kind: "absent" });
+      } else {
+        setState({ kind: "failed", message: errorText(e) });
+      }
     } finally {
       unlisten();
       // The saved transcript now stands in for the preview.
@@ -87,5 +99,16 @@ export function useTranscript(recording: Recording | null, onTranscribed?: () =>
     }
   }, [recording, onTranscribed]);
 
-  return { state, live, transcribe };
+  /** Asks the backend to stop the run. The `transcribe` promise then rejects, and its
+   *  catch — seeing `cancelled` — restores the prior transcript instead of failing. */
+  const cancel = useCallback(async () => {
+    cancelled.current = true;
+    try {
+      await api.cancelTranscribe();
+    } catch {
+      // Best-effort: the run may already be ending on its own.
+    }
+  }, []);
+
+  return { state, live, transcribe, cancel };
 }

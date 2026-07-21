@@ -108,6 +108,97 @@ export function SettingsPane() {
         </section>
 
         <section className="field">
+          <h2 className="field-head">Transcription engine</h2>
+          <p className="field-hint">
+            Built-in runs offline (whisper.cpp). Whisper CLI shells out to your local
+            OpenAI <code>whisper</code> install on the mixdown — cleaner on silence, but
+            no per-speaker labels and it must be installed.
+          </p>
+          <div className="choices">
+            {(
+              [
+                { id: "builtin", label: "Built-in", sub: "Offline, per-speaker" },
+                { id: "whisper-cli", label: "Whisper CLI", sub: "External, cleaner" },
+              ] as const
+            ).map((e) => (
+              <label
+                key={e.id}
+                className={`choice${settings.transcribe_engine === e.id ? " is-active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="transcribe_engine"
+                  checked={settings.transcribe_engine === e.id}
+                  onChange={() => {
+                    const next = { ...settings, transcribe_engine: e.id };
+                    update(next);
+                    // On first switch to the CLI, try to find the tool for the user
+                    // rather than making them paste a path.
+                    if (
+                      e.id === "whisper-cli" &&
+                      (!settings.whisper_cli.bin ||
+                        settings.whisper_cli.bin === "whisper")
+                    ) {
+                      void api.detectWhisper().then((path) => {
+                        if (path)
+                          update({
+                            ...next,
+                            whisper_cli: { ...next.whisper_cli, bin: path },
+                          });
+                      });
+                    }
+                  }}
+                />
+                <span className="choice-main">
+                  <span className="choice-label">{e.label}</span>
+                  <span className="choice-sub">{e.sub}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {settings.transcribe_engine === "whisper-cli" && (
+            <>
+              <label className="field-sub">
+                <span className="field-sub-label">whisper path</span>
+                <input
+                  className="input"
+                  type="text"
+                  spellCheck={false}
+                  placeholder="~/whisper-openai/.venv/bin/whisper"
+                  value={settings.whisper_cli.bin}
+                  onChange={(e) =>
+                    update({
+                      ...settings,
+                      whisper_cli: { ...settings.whisper_cli, bin: e.target.value },
+                    })
+                  }
+                />
+              </label>
+              <label className="field-sub">
+                <span className="field-sub-label">model</span>
+                <select
+                  className="input"
+                  value={settings.whisper_cli.model}
+                  onChange={(e) =>
+                    update({
+                      ...settings,
+                      whisper_cli: { ...settings.whisper_cli, model: e.target.value },
+                    })
+                  }
+                >
+                  {["turbo", "large-v3", "medium", "small", "base", "tiny"].map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+        </section>
+
+        {settings.transcribe_engine === "builtin" && (
+        <section className="field">
           <h2 className="field-head">Transcription</h2>
           <p className="field-hint">
             Accurate uses beam search on the full model — best for Indonesian and
@@ -163,7 +254,26 @@ export function SettingsPane() {
             in the meeting, shared across both sides. Force a language if a recording
             still comes out wrong.
           </p>
+
+          <label className="toggle" style={{ marginTop: "16px" }}>
+            <input
+              type="checkbox"
+              checked={settings.mic_denoise}
+              onChange={(e) =>
+                update({ ...settings, mic_denoise: e.target.checked })
+              }
+            />
+            <span className="toggle-track" aria-hidden="true">
+              <span className="toggle-thumb" />
+            </span>
+            <span className="toggle-text">Suppress microphone background noise</span>
+          </label>
+          <p className="field-hint">
+            Strips café clatter and room noise from your side before transcribing. It
+            removes noise, not other people talking nearby.
+          </p>
         </section>
+        )}
 
         <section className="field">
           <h2 className="field-head">AI provider</h2>

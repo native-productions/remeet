@@ -36,6 +36,39 @@ impl TranscribeSpeed {
     }
 }
 
+/// Which engine transcribes the audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TranscribeEngine {
+    /// whisper.cpp, built in — offline, no external dependency, Metal-accelerated.
+    #[default]
+    Builtin,
+    /// The OpenAI `whisper` command-line tool, run on the mixdown. Its decoding
+    /// rejects the silence hallucinations the built-in engine emits, at the cost of an
+    /// external install and no per-speaker attribution.
+    WhisperCli,
+}
+
+/// Where to find the external `whisper` tool and which model to run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WhisperCliConfig {
+    /// The `whisper` executable. A bare name is looked up on `PATH`; set a full path
+    /// when it lives in a virtualenv the app's environment cannot see.
+    pub bin: String,
+    /// Model name passed to `--model` (e.g. `turbo`, `large-v3`).
+    pub model: String,
+}
+
+impl Default for WhisperCliConfig {
+    fn default() -> Self {
+        Self {
+            bin: "whisper".to_owned(),
+            model: "turbo".to_owned(),
+        }
+    }
+}
+
 /// Everything the user can configure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -61,6 +94,13 @@ pub struct Settings {
     /// to auto-detect. Set it when auto-detect guesses wrong — common for Indonesian
     /// meetings that mix in English.
     pub transcribe_language: Option<String>,
+    /// Suppress background noise on the microphone before transcribing. Off by
+    /// default — it can clip a quiet voice, so it is opt-in for noisy places.
+    pub mic_denoise: bool,
+    /// Which engine transcribes. Built-in by default.
+    pub transcribe_engine: TranscribeEngine,
+    /// External `whisper` tool location and model, used when the engine is the CLI.
+    pub whisper_cli: WhisperCliConfig,
 }
 
 impl Default for Settings {
@@ -73,6 +113,9 @@ impl Default for Settings {
             call_reminder: true,
             transcribe_speed: TranscribeSpeed::default(),
             transcribe_language: None,
+            mic_denoise: false,
+            transcribe_engine: TranscribeEngine::default(),
+            whisper_cli: WhisperCliConfig::default(),
         }
     }
 }

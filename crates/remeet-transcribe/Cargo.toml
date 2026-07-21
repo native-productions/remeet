@@ -9,3 +9,6 @@ license.workspace = true
 whisper-rs.workspace = true
 rubato.workspace = true
 thiserror.workspace = true
+# Pure-Rust RNNoise for microphone background-noise suppression (no native dependency).
+nnnoiseless = { version = "0.5", default-features = false }
+

@@ -91,6 +91,13 @@ export type Settings = {
   whisper_cli: { bin: string; model: string };
 };
 
+/** Build identity shown in the UI: the version, and whether this is a dev run. */
+export type AppInfo = {
+  version: string;
+  /** True for a `bun run app` terminal build, false for the installed bundle. */
+  dev: boolean;
+};
+
 export type Probe = {
   installed: boolean;
   version: string | null;
@@ -109,6 +116,8 @@ export const PROVIDERS: { id: ProviderId; label: string; bin: string }[] = [
 ];
 
 export const api = {
+  /** Version + dev/release mode, for the version line and DEV badge. */
+  appInfo: () => invoke<AppInfo>("app_info"),
   getStatus: () => invoke<Status>("get_status"),
   listRecordings: () => invoke<Recording[]>("list_recordings"),
   startRecording: () => invoke<void>("start_recording"),

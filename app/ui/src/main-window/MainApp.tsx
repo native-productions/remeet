@@ -13,6 +13,7 @@ import { useRecordings } from "../lib/useRecordings";
 import { useSpaces } from "../lib/useSpaces";
 import { useSummary } from "../lib/useSummary";
 import { useTranscript } from "../lib/useTranscript";
+import { useAppInfo } from "../lib/useAppInfo";
 import { SettingsPane } from "./SettingsPane";
 import { SpacesBrowser } from "./SpacesBrowser";
 
@@ -30,6 +31,7 @@ export function MainApp() {
   const [tab, setTab] = useState<DetailTab>("transcript");
   const [selected, setSelected] = useState<Recording | null>(null);
   const [providerLabel, setProviderLabel] = useState("the AI CLI");
+  const appInfo = useAppInfo();
   /** Which space is being browsed, and whether the browser is at its root. */
   const [openSpace, setOpenSpace] = useState<string | null>(null);
   const [atSpacesRoot, setAtSpacesRoot] = useState(true);
@@ -87,6 +89,7 @@ export function MainApp() {
           <span className="wordmark">
             <i className="mark" aria-hidden="true" />
             Remeet
+            {appInfo?.dev && <span className="dev-badge">DEV</span>}
           </span>
         </div>
 

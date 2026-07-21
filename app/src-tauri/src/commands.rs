@@ -108,7 +108,12 @@ impl AppState {
 
         Self {
             session: Mutex::new(None),
-            root: home.join("Remeet").join("recordings"),
+            // Dev runs are quarantined to their own tree so poking at the app in a
+            // terminal never touches real recordings, and a dev build and the installed
+            // one can run side by side without fighting over the same files.
+            root: home
+                .join(if tauri::is_dev() { "Remeet-dev" } else { "Remeet" })
+                .join("recordings"),
             model_path,
             language,
             vad_model_path,
@@ -681,6 +686,24 @@ pub async fn rename_recording(
     let mut meta = spaces::load_meta(&dir);
     meta.name = name;
     spaces::save_meta(&dir, &meta).map_err(|e| e.to_string())
+}
+
+/// Build identity for the UI: the version to show, and whether this is a dev build so
+/// the shell can flag it. `dev` is `tauri::is_dev()`, decided at compile time.
+#[derive(Serialize)]
+pub struct AppInfo {
+    version: String,
+    dev: bool,
+}
+
+/// Reports the app version and dev/release mode, so the window can show a version line
+/// and a DEV badge that tells a terminal run apart from the installed app.
+#[tauri::command]
+pub fn app_info(app: AppHandle) -> AppInfo {
+    AppInfo {
+        version: app.package_info().version.to_string(),
+        dev: tauri::is_dev(),
+    }
 }
 
 // AI providers ---------------------------------------------------------------

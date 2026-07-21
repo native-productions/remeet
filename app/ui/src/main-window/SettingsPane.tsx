@@ -8,6 +8,7 @@ import {
   type ProviderId,
   type Settings,
 } from "../lib/api";
+import { useAppInfo } from "../lib/useAppInfo";
 
 type TestState =
   | { kind: "idle" }
@@ -28,6 +29,7 @@ export function SettingsPane() {
   const [probes, setProbes] = useState<Partial<Record<ProviderId, Probe>>>({});
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [path, setPath] = useState("");
+  const appInfo = useAppInfo();
 
   useEffect(() => {
     void (async () => {
@@ -370,6 +372,11 @@ export function SettingsPane() {
           {test.kind === "failed" && <pre className="test-error">{test.message}</pre>}
         </section>
 
+        {appInfo && (
+          <p className="pane-foot">
+            Remeet v{appInfo.version} · {appInfo.dev ? "dev" : "installed"}
+          </p>
+        )}
         {path && <p className="pane-foot">Stored at {path}</p>}
       </div>
     </section>

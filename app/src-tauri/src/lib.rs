@@ -49,6 +49,7 @@ pub fn run() {
             commands::get_transcript,
             commands::transcribe,
             commands::cancel_transcribe,
+            commands::app_info,
             commands::prepare_audio,
             commands::delete_recording,
             commands::reveal_recording,
@@ -72,10 +73,15 @@ pub fn run() {
         .setup(|app| {
             // State is built here rather than in the builder chain because the app
             // config directory is only resolvable from a handle.
-            let config_dir = app
+            let mut config_dir = app
                 .path()
                 .app_config_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            // Dev keeps its settings and spaces out of the installed app's config, so a
+            // terminal run can be reconfigured freely without disturbing the real one.
+            if tauri::is_dev() {
+                config_dir.push("dev");
+            }
             app.manage(AppState::new(config_dir));
 
             // Idles as a menu-bar utility: no dock icon, no app-switcher presence.
@@ -179,9 +185,19 @@ fn make_main_movable_by_background(app: &AppHandle) {
 /// Builds the menu-bar tray: a template glyph, a left-click that toggles the popover,
 /// and a right-click menu holding Quit.
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    // A greyed line naming the build, so the version — and whether this is a dev run —
+    // is legible straight from the menu bar, where two identical icons would otherwise
+    // be indistinguishable.
+    let version = app.package_info().version.to_string();
+    let build_label = if tauri::is_dev() {
+        format!("Remeet v{version} · dev")
+    } else {
+        format!("Remeet v{version}")
+    };
+    let version_item = MenuItem::with_id(app, "version", &build_label, false, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Remeet", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Remeet", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let menu = Menu::with_items(app, &[&version_item, &open, &quit])?;
 
     // A monochrome glyph flagged as a template image, so the menu bar tints it for
     // the current appearance instead of showing the raw pixels.
@@ -190,6 +206,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     TrayIconBuilder::with_id("remeet")
         .icon(icon)
         .icon_as_template(true)
+        .tooltip(&build_label)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {

@@ -12,6 +12,7 @@ import { useRecorder } from "../lib/useRecorder";
 import { useRecordings } from "../lib/useRecordings";
 import { useSpaces } from "../lib/useSpaces";
 import { useTranscript } from "../lib/useTranscript";
+import { useAppInfo } from "../lib/useAppInfo";
 
 type Tab = "record" | "library";
 
@@ -24,6 +25,7 @@ type Tab = "record" | "library";
 export function PopoverApp() {
   const [tab, setTab] = useState<Tab>("record");
   const [open, setOpen] = useState<Recording | null>(null);
+  const appInfo = useAppInfo();
 
   const { recordings, refresh } = useRecordings();
   const { spaces, activeSpace, chooseActive } = useSpaces();
@@ -60,6 +62,7 @@ export function PopoverApp() {
         <span className="wordmark">
           <i className="mark" aria-hidden="true" />
           Remeet
+          {appInfo?.dev && <span className="dev-badge">DEV</span>}
         </span>
         <button
           className="expand"

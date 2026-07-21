@@ -345,6 +345,35 @@ app expects the Whisper model at `~/whisper/models/ggml-large-v3-turbo.bin`.
 The app idles as a macOS `Accessory` — menu bar only, no dock icon — and becomes a
 regular app while the main window is open, so it can be cmd-tabbed back to.
 
+### Dev vs. installed, and updating
+
+There are two Remeets: the **dev** build you run from a terminal with `bun run app`, and
+the **installed** one in `/Applications`. They are kept apart on purpose:
+
+- The dev build wears a **DEV** badge (sidebar and popover), its tray tooltip and menu
+  read `Remeet vX.Y.Z · dev`, and it stores everything under `~/Remeet-dev` with its own
+  settings — so experimenting in dev can never touch real recordings, and both can run at
+  once. (A fresh dev build starts with empty settings; set the Whisper path/model once.)
+- The installed build has no badge, reads `Remeet vX.Y.Z`, and uses `~/Remeet`.
+
+Build and install (or refresh) the real app:
+
+```sh
+scripts/update-app.sh        # build the release bundle, sign, install to /Applications
+```
+
+Cut a new version — `tauri.conf.json` is the source of truth, the crate's Cargo.toml is
+kept in sync — then rebuild:
+
+```sh
+scripts/bump-version.sh 0.2.0
+scripts/update-app.sh
+```
+
+The current version shows in Settings, the tray menu, and the tray tooltip. First launch
+of the installed app prompts for Microphone; grant Screen Recording in System Settings →
+Privacy for system audio, then relaunch.
+
 Deleting a recording from the library removes its whole directory under
 `~/Remeet/recordings` — both track WAVs, the mixdown, and the transcript. There is no
 trash and no undo, so the row asks for confirmation in place first.

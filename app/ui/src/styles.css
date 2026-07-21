@@ -145,6 +145,19 @@ body[data-window="popover"] {
   background: var(--accent);
 }
 
+/* "DEV" pill beside the wordmark: flags a terminal build so it is never mistaken for
+   the installed app. Rendered only when app_info reports a dev run. */
+.dev-badge {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.5;
+}
+
 /* Segmented tabs */
 .tabs {
   display: grid;

@@ -235,6 +235,30 @@ export function SettingsPane() {
           </div>
 
           <label className="field-sub">
+            <span className="field-sub-label">model</span>
+            <select
+              className="input"
+              value={settings.whisper_builtin.model}
+              onChange={(e) =>
+                update({
+                  ...settings,
+                  whisper_builtin: { ...settings.whisper_builtin, model: e.target.value },
+                })
+              }
+            >
+              {["large-v3", "large-v3-turbo", "medium", "small", "base", "tiny"].map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="field-hint">
+            Loaded from <code>~/whisper/models/ggml-&lt;model&gt;.bin</code>. Install models
+            with <code>setup.sh</code>; large-v3 is the most accurate, turbo the fastest.
+          </p>
+
+          <label className="field-sub">
             <span className="field-sub-label">Language</span>
             <select
               className="input"

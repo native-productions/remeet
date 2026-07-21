@@ -89,6 +89,8 @@ export type Settings = {
   transcribe_engine: "builtin" | "whisper-cli";
   /** External whisper tool location and model, used when the engine is the CLI. */
   whisper_cli: { bin: string; model: string };
+  /** GGML model the built-in engine loads (resolved to ~/whisper/models/ggml-<model>.bin). */
+  whisper_builtin: { model: string };
 };
 
 /** Build identity shown in the UI: the version, and whether this is a dev run. */

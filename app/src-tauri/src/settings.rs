@@ -69,6 +69,23 @@ impl Default for WhisperCliConfig {
     }
 }
 
+/// Which model the built-in whisper.cpp engine loads.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WhisperBuiltinConfig {
+    /// GGML model name, resolved to `~/whisper/models/ggml-<model>.bin` (e.g.
+    /// `large-v3`, `large-v3-turbo`). `REMEET_MODEL` overrides the whole path.
+    pub model: String,
+}
+
+impl Default for WhisperBuiltinConfig {
+    fn default() -> Self {
+        Self {
+            model: "large-v3".to_owned(),
+        }
+    }
+}
+
 /// Everything the user can configure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -101,6 +118,8 @@ pub struct Settings {
     pub transcribe_engine: TranscribeEngine,
     /// External `whisper` tool location and model, used when the engine is the CLI.
     pub whisper_cli: WhisperCliConfig,
+    /// Which GGML model the built-in engine loads.
+    pub whisper_builtin: WhisperBuiltinConfig,
 }
 
 impl Default for Settings {
@@ -116,6 +135,7 @@ impl Default for Settings {
             mic_denoise: false,
             transcribe_engine: TranscribeEngine::default(),
             whisper_cli: WhisperCliConfig::default(),
+            whisper_builtin: WhisperBuiltinConfig::default(),
         }
     }
 }

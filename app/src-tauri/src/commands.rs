@@ -29,7 +29,6 @@ use crate::store::{self, LineDto, RecordingDto};
 pub struct AppState {
     session: Mutex<Option<Active>>,
     root: PathBuf,
-    model_path: PathBuf,
     /// Transcription language as an ISO code, or `None` to auto-detect.
     language: Option<String>,
     /// A ggml Silero VAD model to skip silence with, if one is present. Checked for
@@ -74,22 +73,13 @@ impl Active {
 }
 
 impl AppState {
-    /// Builds state with the default store (`~/Remeet/recordings`) and the full
-    /// `large-v3` model, which transcribes non-English speech far more accurately
-    /// than the distilled `turbo` variant.
+    /// Builds state with the default store (`~/Remeet/recordings`).
     ///
-    /// Both are overridable: `REMEET_MODEL` points at a different GGML model, and
-    /// `REMEET_LANG` forces a language (e.g. `id`) instead of auto-detection.
+    /// The built-in model is chosen per transcription from settings (see
+    /// [`builtin_model_path`]); `REMEET_LANG` forces a language (e.g. `id`) instead of
+    /// auto-detection.
     pub fn new(config_dir: PathBuf) -> Self {
         let home = home_dir();
-        let model_path = std::env::var_os("REMEET_MODEL")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                home.join("whisper")
-                    .join("models")
-                    .join("ggml-large-v3.bin")
-            });
-
         let language = std::env::var("REMEET_LANG")
             .ok()
             .filter(|s| !s.trim().is_empty());
@@ -114,7 +104,6 @@ impl AppState {
             root: home
                 .join(if tauri::is_dev() { "Remeet-dev" } else { "Remeet" })
                 .join("recordings"),
-            model_path,
             language,
             vad_model_path,
             config_dir,
@@ -350,10 +339,14 @@ pub async fn transcribe(
         .map_err(|_| "transcription task panicked".to_string())?;
     }
 
-    // Built-in whisper.cpp engine, per-speaker tracks.
-    let model_path = state.model_path.clone();
+    // Built-in whisper.cpp engine, per-speaker tracks. The model comes from settings
+    // (or REMEET_MODEL), resolved to its GGML file under `~/whisper/models`.
+    let model_path = builtin_model_path(&settings);
     if !model_path.exists() {
-        return Err(format!("model not found at {}", model_path.display()));
+        return Err(format!(
+            "model not found at {} — install it or pick another in Settings",
+            model_path.display()
+        ));
     }
     // Speed/accuracy mode comes from settings; VAD engages only if the model is
     // actually present, so it costs nothing to leave wired when the file is absent.
@@ -830,6 +823,19 @@ fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// GGML file for the built-in engine's configured model: `REMEET_MODEL` if set,
+/// otherwise `~/whisper/models/ggml-<model>.bin` for the model named in settings.
+fn builtin_model_path(settings: &Settings) -> PathBuf {
+    std::env::var_os("REMEET_MODEL")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            home_dir()
+                .join("whisper")
+                .join("models")
+                .join(format!("ggml-{}.bin", settings.whisper_builtin.model))
+        })
 }
 
 fn now_secs() -> u64 {

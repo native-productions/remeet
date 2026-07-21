@@ -2,12 +2,53 @@
 
 Meeting capture, transcription, and action items for macOS.
 
-Status: **working app**. Records both sides of a call, transcribes on device with
+Records both sides of a call, transcribes on device with
 Whisper, plays the audio back, files recordings into spaces, and summarises them
 through the Claude Code or Codex CLI already installed on the machine. Action-item
 extraction is proven as a spike and not yet wired into the UI.
 
 Everything runs locally. No account, no upload, no API key.
+
+## Install
+
+Remeet is a native macOS app you build and install yourself — no App Store, no
+account. It targets **macOS 15+ on Apple Silicon**.
+
+**1. Install the build tools** (once):
+
+| Tool | Why | Install |
+| --- | --- | --- |
+| [Rust](https://rustup.rs) | the core + Tauri shell | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| [bun](https://bun.sh) | the React frontend | `curl -fsSL https://bun.sh/install \| bash` |
+| an **arm64** `cmake` | whisper.cpp builds from source | see [cmake must match the CPU architecture](#cmake-must-match-the-cpu-architecture) |
+
+**2. Clone and run setup:**
+
+```sh
+git clone https://github.com/native-productions/remeet.git
+cd remeet
+./setup.sh
+```
+
+`setup.sh` walks you through everything: it checks the tools above, downloads a Whisper
+model of your choice, detects your **Claude Code** or **Codex** CLI and wires it up for
+summaries, writes the app's settings, and offers to **build and install Remeet to
+`/Applications`** right there.
+
+**3. First launch.** Open Remeet from Spotlight or Launchpad. It lives in the menu bar
+(no dock icon until you open the window). Grant **Microphone** when prompted, and for
+the other side of the call, turn on **Screen Recording** for Remeet in System Settings →
+Privacy & Security, then relaunch.
+
+**Updating** after a `git pull`:
+
+```sh
+./scripts/update-app.sh      # rebuild the release bundle and reinstall it
+```
+
+Want to change the model or provider later, or run a dev build? See
+[Running the app](#running-the-app) below, and [CONTRIBUTING.md](CONTRIBUTING.md) to hack
+on Remeet itself.
 
 ## Demo
 
@@ -441,3 +482,11 @@ speech needs, and it reuses the band-limited resampler transcription already run
 Design context is in `PRODUCT.md` and `DESIGN.md`; the UI is a light-committed neutral
 system (OKLCH tokens, white surfaces, clay accent, a coral live state that is the only
 thing that pulses). It is a menu-bar utility, so it runs with no dock icon.
+
+## Contributing
+
+Remeet is open source and contributions are welcome — bug fixes, new capabilities, and
+docs alike. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)**: it covers the repo layout,
+the dev loop (`bun run app`, which runs against an isolated `~/Remeet-dev` so it never
+touches your real recordings), the conventions the code follows, and how to open a pull
+request. `PRODUCT.md` and `DESIGN.md` explain the product intent and the visual system.

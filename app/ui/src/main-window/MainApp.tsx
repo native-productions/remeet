@@ -38,9 +38,21 @@ export function MainApp() {
   const { spaces, activeSpace, chooseActive, refresh: refreshSpaces } = useSpaces();
   const recorder = useRecorder(useCallback(() => void refresh(), [refresh]));
 
+  // The selected recording can be deleted, transcribed, summarised, or renamed out
+  // from under the detail pane. After any of those the selection adopts the fresh
+  // record — so its `transcribed`/`summarized` flags and name are current — rather than
+  // keeping the stale snapshot it was opened with, or drops to null if it is gone. A
+  // stale snapshot is why the Summary button sat disabled right after transcribing.
+  const onListChanged = useCallback(async () => {
+    const fresh = await refresh();
+    setSelected((current) =>
+      current ? fresh.find((r) => r.id === current.id) ?? null : null,
+    );
+  }, [refresh]);
+
   const player = useAudioPlayer(selected?.id ?? null);
-  const transcript = useTranscript(selected, refresh);
-  const summary = useSummary(selected, refresh);
+  const transcript = useTranscript(selected, onListChanged);
+  const summary = useSummary(selected, onListChanged);
 
   // Which provider is configured decides what the summary view says it will run,
   // so it is re-read whenever the user comes back from Settings.
@@ -55,15 +67,6 @@ export function MainApp() {
       .catch(() => {});
   }, [section]);
 
-  // The selected recording can be deleted out from under the detail pane, so the
-  // selection is reconciled against the list that comes back, not the stale one.
-  const onListChanged = useCallback(async () => {
-    const fresh = await refresh();
-    setSelected((current) =>
-      current && fresh.some((r) => r.id === current.id) ? current : null,
-    );
-  }, [refresh]);
-
   const open = (recording: Recording) => {
     setSelected(recording);
     setTab("transcript");
@@ -73,6 +76,12 @@ export function MainApp() {
 
   return (
     <div className={`win${showsDetail ? "" : " is-wide"}`}>
+      {/* The title bar is transparent and the webview fills under it, so nothing is
+          draggable by default. This strip spans the reserved top band — above the
+          empty header padding, below where any control begins — as the window's drag
+          handle. The traffic lights are a native layer above the webview, so they keep
+          working through it. */}
+      <div className="titlebar-drag" data-tauri-drag-region />
       <aside className="side">
         <div className="side-head">
           <span className="wordmark">

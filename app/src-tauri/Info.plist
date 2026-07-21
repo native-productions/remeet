@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- macOS terminates an app that touches the microphone without this string. It is
+         the text shown in the permission prompt on first record. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Remeet records your microphone to transcribe your side of a meeting, on this Mac.</string>
+
+    <!-- Launch as a menu-bar accessory: no Dock icon until the main window is opened,
+         which the app promotes to a regular app at runtime. Matches the popover-first
+         design and avoids a Dock-icon flash at launch. -->
+    <key>LSUIElement</key>
+    <true/>
+</dict>
+</plist>

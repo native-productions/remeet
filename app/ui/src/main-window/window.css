@@ -11,6 +11,18 @@ body[data-window="main"] {
   height: 100vh;
 }
 
+/* Window drag handle over the transparent title bar. Covers the top band that every
+   header already reserves with padding, so it grabs empty space only — real controls
+   start below it and keep their own clicks. */
+.titlebar-drag {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 34px;
+  z-index: 50;
+}
+
 /* Settings replaces both content columns rather than squeezing into one. */
 .win.is-wide {
   grid-template-columns: 176px 1fr;

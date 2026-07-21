@@ -56,6 +56,7 @@ rubato = "0.16"
 # APIs (start/stop/current) into awaitable ones.
 cidre = { version = "0.16", default-features = false, features = [
     "sc",
+    "av",
     "macos_15_0",
     "async",
 ] }

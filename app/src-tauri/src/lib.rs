@@ -86,6 +86,7 @@ pub fn run() {
             build_tray(app.handle())?;
             hide_popover_on_blur(app.handle())?;
             accessory_when_main_closes(app.handle())?;
+            make_main_movable_by_background(app.handle());
 
             // Watches for a call on the mic + speakers so a forgotten recording gets
             // a nudge. Managed so it outlives `setup` and unregisters on shutdown;
@@ -136,6 +137,43 @@ fn install_exit_guard() {
     unsafe {
         libc::signal(libc::SIGABRT, on_abort as *const () as libc::sighandler_t);
     }
+}
+
+/// Makes the main window movable by dragging its background.
+///
+/// The window has a transparent, overlaid title bar and the webview fills under it, so
+/// the only thing that moves the window is the JS drag region. That handles click-drag,
+/// but the macOS three-finger-drag gesture is a WindowServer-level event that never
+/// reaches the webview — the native window itself has to be movable by its background
+/// for the gesture to work. Setting that one AppKit flag enables it; controls still
+/// take their own clicks, so nothing else changes.
+///
+/// The popover is deliberately left out: it is positioned under the tray icon and must
+/// not wander.
+fn make_main_movable_by_background(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::msg_send;
+        use objc2::runtime::AnyObject;
+
+        let Some(window) = app.get_webview_window(MAIN) else {
+            return;
+        };
+        let Ok(ns_window) = window.ns_window() else {
+            return;
+        };
+        let ns_window = ns_window as *mut AnyObject;
+        if ns_window.is_null() {
+            return;
+        }
+        // SAFETY: `ns_window` is the live `NSWindow` for the main window, and this runs
+        // on the main thread inside `setup`. The setter takes a `BOOL` and returns void.
+        unsafe {
+            let _: () = msg_send![ns_window, setMovableByWindowBackground: true];
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
 }
 
 /// Builds the menu-bar tray: a template glyph, a left-click that toggles the popover,

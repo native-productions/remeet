@@ -33,6 +33,9 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 # Bare libc for the SIGABRT exit guard around the whisper.cpp/ggml Metal teardown.
 libc = "0.2"
+# Sends one AppKit message (setMovableByWindowBackground:) so the macOS three-finger
+# drag gesture can move the main window, which the webview drag region can't catch.
+objc2 = "0.6"
 
 [dev-dependencies]
 tempfile = { workspace = true }

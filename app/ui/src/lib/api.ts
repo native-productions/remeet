@@ -60,21 +60,28 @@ export type Status = {
   elapsed_secs: number;
 };
 
-/** Which local CLI does the language work. Matches `remeet_ai::ProviderId`. */
-export type ProviderId = "claude-code" | "codex";
+/** Which provider does the language work. Matches `remeet_ai::ProviderId`. */
+export type ProviderId = "claude-code" | "codex" | "gemini" | "openai" | "custom";
 
 export type ProviderConfig = {
   id: ProviderId;
-  /** Explicit binary path, or null to use the name on PATH. */
+  /** Explicit binary path, or null to use the name on PATH. CLI providers only. */
   bin: string | null;
-  /** Model to request, or null to let the CLI use its own default. */
+  /** Model to request, or null to let the provider use its default. */
   model: string | null;
+  /** API key for a key-based provider, or null (CLI providers, or a no-auth server). */
+  api_key: string | null;
+  /** Base URL override; required for `custom`, optional (has a default) otherwise. */
+  base_url: string | null;
 };
 
 export type Settings = {
   provider: ProviderId;
   claude_code: ProviderConfig;
   codex: ProviderConfig;
+  gemini: ProviderConfig;
+  openai: ProviderConfig;
+  custom: ProviderConfig;
   /** Where the next recording is filed. Null means the default space. */
   active_space: string | null;
   /** Notify when another app has a call live, in case recording was forgotten. */
@@ -112,10 +119,90 @@ export type Summary = {
   decisions: string[];
 };
 
-export const PROVIDERS: { id: ProviderId; label: string; bin: string }[] = [
-  { id: "claude-code", label: "Claude Code", bin: "claude" },
-  { id: "codex", label: "Codex", bin: "codex" },
+/** CLI providers drive a logged-in tool; API providers call an HTTP endpoint. */
+export type ProviderCategory = "cli" | "api";
+
+export type ProviderMeta = {
+  id: ProviderId;
+  label: string;
+  category: ProviderCategory;
+  /** PATH binary name, CLI providers only. */
+  bin?: string;
+  /** Placeholder model shown when typing a model by hand ("Other…"). */
+  modelHint: string;
+  /**
+   * Common models offered in the picker, so a model is chosen by clicking rather
+   * than typed (and misspelled). Not exhaustive on purpose: which models an account
+   * or a local server actually allows is decided elsewhere, so the UI always keeps
+   * an "Other…" escape for anything not listed here.
+   */
+  models: string[];
+};
+
+export const PROVIDERS: ProviderMeta[] = [
+  {
+    id: "claude-code",
+    label: "Claude Code",
+    category: "cli",
+    bin: "claude",
+    modelHint: "e.g. claude-opus-4-8",
+    models: ["opus", "sonnet", "haiku"],
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    category: "cli",
+    bin: "codex",
+    modelHint: "e.g. gpt-5.5",
+    models: ["gpt-5.5", "gpt-5", "gpt-5-mini", "o4-mini"],
+  },
+  {
+    id: "gemini",
+    label: "Gemini",
+    category: "api",
+    modelHint: "e.g. gemini-3.5-flash",
+    models: [
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-3.1-pro-preview",
+      "gemini-3-flash-preview",
+    ],
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    category: "api",
+    modelHint: "e.g. gpt-4o-mini",
+    models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini", "o3-mini"],
+  },
+  {
+    id: "custom",
+    label: "Custom (OpenAI-compatible)",
+    category: "api",
+    modelHint: "e.g. llama3.1",
+    models: ["llama3.1", "llama3.2", "qwen2.5", "mistral", "gemma2", "phi3"],
+  },
 ];
+
+/** Sentinel select value that reveals the free-text model input. */
+export const MODEL_OTHER = "__other__";
+
+/** The `Settings` slot each provider's config is stored under. */
+const PROVIDER_KEY = {
+  "claude-code": "claude_code",
+  codex: "codex",
+  gemini: "gemini",
+  openai: "openai",
+  custom: "custom",
+} as const satisfies Record<ProviderId, keyof Settings>;
+
+export function providerKey(id: ProviderId): keyof Settings {
+  return PROVIDER_KEY[id];
+}
+
+export function providerCategory(id: ProviderId): ProviderCategory {
+  return PROVIDERS.find((p) => p.id === id)?.category ?? "cli";
+}
 
 export const api = {
   /** Version + dev/release mode, for the version line and DEV badge. */

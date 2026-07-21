@@ -98,6 +98,74 @@ impl DualCapture {
     }
 }
 
+/// Captures system audio only, as a single `System` track.
+///
+/// Where [`DualCapture`] taps both sides through one stream, this taps only the
+/// system mixer: the microphone is captured separately through [`crate::MicCapture`],
+/// which runs it through macOS voice processing to cancel the speaker bleed the raw
+/// mic would otherwise pick up. So this stream registers only the audio output and
+/// never calls `set_capture_mic` — it needs Screen Recording permission, not the mic.
+pub struct SystemCapture {
+    stream: arc::R<sc::Stream>,
+    _delegate: arc::R<CaptureDelegate>,
+    _queue: arc::R<dispatch::Queue>,
+}
+
+impl SystemCapture {
+    /// Starts capturing system audio. Frames are pushed to `tx` from ScreenCaptureKit's
+    /// dispatch queue.
+    pub async fn start(tx: Sender<AudioFrame>) -> Result<Self> {
+        let content = sc::ShareableContent::current()
+            .await
+            .map_err(|err| AudioError::ScreenCaptureKit(format!("{err:?}")))?;
+
+        let displays = content.displays();
+        let display = displays.get(0).ok().ok_or(AudioError::NoDisplay)?;
+
+        let mut cfg = sc::StreamCfg::new();
+        cfg.set_width(MIN_DIMENSION);
+        cfg.set_height(MIN_DIMENSION);
+        cfg.set_captures_audio(true);
+        // No `set_capture_mic`: the mic is voice-processed elsewhere.
+        cfg.set_excludes_current_process_audio(true);
+        cfg.set_sample_rate(SAMPLE_RATE);
+        cfg.set_channel_count(CHANNEL_COUNT);
+
+        let windows = ns::Array::new();
+        let filter = sc::ContentFilter::with_display_excluding_windows(&display, &windows);
+        let stream = sc::Stream::new(&filter, &cfg);
+
+        let queue = dispatch::Queue::serial_with_ar_pool();
+        let delegate = CaptureDelegate::with(DelegateInner {
+            tx,
+            scratch: BufListScratch::new(),
+        });
+
+        stream
+            .add_stream_output(delegate.as_ref(), sc::OutputType::Audio, Some(&queue))
+            .map_err(|err| AudioError::ScreenCaptureKit(format!("Audio: {err:?}")))?;
+
+        stream
+            .start()
+            .await
+            .map_err(|err| AudioError::ScreenCaptureKit(format!("{err:?}")))?;
+
+        Ok(Self {
+            stream,
+            _delegate: delegate,
+            _queue: queue,
+        })
+    }
+
+    /// Stops the stream. Frames already queued stay readable on the receiver.
+    pub async fn stop(self) -> Result<()> {
+        self.stream
+            .stop()
+            .await
+            .map_err(|err| AudioError::ScreenCaptureKit(format!("{err:?}")))
+    }
+}
+
 /// Rust state carried by the Objective-C delegate object.
 #[repr(C)]
 struct DelegateInner {

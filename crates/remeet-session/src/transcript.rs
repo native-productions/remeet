@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use remeet_audio::Track;
 use remeet_transcribe::{
-    DecodeOptions, LiveSegment, Transcriber, WHISPER_SAMPLE_RATE, denoise, isolate_local,
+    DecodeOptions, LiveSegment, Transcriber, WHISPER_SAMPLE_RATE, denoise,
     prepare_for_whisper,
 };
 
@@ -139,6 +139,14 @@ pub fn transcribe_recording_streaming<F>(
 where
     F: Fn(Speaker, LiveSegment) + Clone + 'static,
 {
+    // Cancel the remote's speaker bleed out of the mic before reading it. Idempotent
+    // (a no-op once done) and best-effort: if it fails, transcribe the raw mic rather
+    // than nothing — the bleed just risks the remote being transcribed off the mic too,
+    // which `suppress_bleed` still trims at the text level below.
+    if let Err(err) = crate::aec_pass::apply(&recording.dir) {
+        eprintln!("echo cancellation skipped for transcription: {err}");
+    }
+
     // Condition every track once, up front, so language detection and transcription
     // share the prepared audio instead of decoding each WAV twice.
     let mut prepared: Vec<(Speaker, Vec<f32>)> = Vec::with_capacity(recording.tracks.len());
@@ -159,22 +167,10 @@ where
         prepared.push((speaker, prepare_for_whisper(&samples, channels, sample_rate)?));
     }
 
-    // Gate the system audio that bled into the microphone acoustically (remote voice
-    // out the speakers and back in the mic) down to silence, so the remote is not
-    // transcribed a second time off the mic track. The remote stays on the clean
-    // system track; the mic keeps only the local voice. Only the mic needs this — the
-    // system track is a digital capture, not an acoustic pickup.
-    if let Some(reference) = prepared
-        .iter()
-        .find(|(speaker, _)| *speaker == Speaker::Them)
-        .map(|(_, audio)| audio.clone())
-    {
-        for (speaker, audio) in prepared.iter_mut() {
-            if *speaker == Speaker::Me {
-                *audio = isolate_local(audio, &reference);
-            }
-        }
-    }
+    // The remote's speaker bleed is already gone from the mic: it was cancelled off the
+    // raw track when the recording stopped (see `aec_pass`, `remeet_aec`). So the mic
+    // here is only the local voice, and no per-track gating is applied. `suppress_bleed`
+    // below stays as a text-level backstop for any residual the AEC left.
 
     // Honour an explicit language; otherwise detect one for the whole meeting from the
     // loudest window across every track, and force it on all of them. Whisper's own

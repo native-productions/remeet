@@ -12,7 +12,7 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use hound::{SampleFormat, WavSpec, WavWriter};
-use remeet_transcribe::{WHISPER_SAMPLE_RATE, isolate_local, prepare_for_whisper};
+use remeet_transcribe::{WHISPER_SAMPLE_RATE, prepare_for_whisper};
 
 use crate::Recording;
 use crate::error::Result;
@@ -34,50 +34,37 @@ pub fn mixdown(recording: &Recording) -> Result<PathBuf> {
         return Ok(path);
     }
 
+    // Ensure the mic's speaker bleed is cancelled before it enters the mix. Idempotent
+    // (a no-op once done); best-effort so a failed cancellation still yields a playable
+    // mix from the raw mic rather than no mix at all.
+    if let Err(err) = crate::aec_pass::apply(&recording.dir) {
+        eprintln!("echo cancellation skipped for mixdown: {err}");
+    }
+
     std::fs::write(&path, encode(&mix(recording)?)?)?;
     Ok(path)
 }
 
 /// Sums every track to one mono 16 kHz signal.
 ///
-/// The microphone is gated against the system track first, so the remote's voice
-/// bleeding into the mic through the speakers is dropped — otherwise it plays twice,
-/// once from each track, slightly out of sync, as an echo. After gating, the mic
-/// carries only the local voice and the system carries only the remote, so the mix is
-/// a clean two-sided conversation.
+/// The remote's voice that bled into the mic through the speakers has already been
+/// cancelled off the mic track when the recording stopped (see `aec_pass` /
+/// `remeet_aec`), so the tracks can simply be summed: the mic carries only the local
+/// voice, the system only the remote, and the mix is a clean two-sided conversation
+/// without the echo the bleed would otherwise play twice.
 ///
 /// Tracks are summed at half gain rather than averaged over however many tracks
 /// exist, so a one-sided stretch — the common case, only one person talking — does
 /// not drop in level when the other track is silent. Clipping is handled at encode
 /// time, where samples are clamped to the rail.
 fn mix(recording: &Recording) -> Result<Vec<f32>> {
-    // (is_microphone, mono 16 kHz samples) for each track.
-    let mut tracks: Vec<(bool, Vec<f32>)> = Vec::with_capacity(recording.tracks.len());
-    for track in &recording.tracks {
-        tracks.push((track.track.as_str() == "microphone", mono_16k(&track.path)?));
-    }
-
-    // The system track is the reference the mic is gated against.
-    let reference = recording
-        .tracks
-        .iter()
-        .position(|t| t.track.as_str() == "system")
-        .map(|i| tracks[i].1.clone());
-
     let mut mixed: Vec<f32> = Vec::new();
-    for (is_microphone, samples) in &tracks {
-        let gated;
-        let samples: &[f32] = match (is_microphone, &reference) {
-            (true, Some(reference)) => {
-                gated = isolate_local(samples, reference);
-                &gated
-            }
-            _ => samples,
-        };
+    for track in &recording.tracks {
+        let samples = mono_16k(&track.path)?;
         if samples.len() > mixed.len() {
             mixed.resize(samples.len(), 0.0);
         }
-        for (out, sample) in mixed.iter_mut().zip(samples) {
+        for (out, sample) in mixed.iter_mut().zip(&samples) {
             *out += sample * 0.5;
         }
     }

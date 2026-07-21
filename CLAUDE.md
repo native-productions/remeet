@@ -41,6 +41,17 @@ cargo run --release -p remeet-app   # runs against the built bundle in app/ui/di
 `cargo run` on its own (dev profile) expects the Vite dev server on port 1420,
 because `devUrl` points there. Use `bun run app` for the normal dev loop.
 
+### Native build dependencies
+
+The `remeet-aec` crate depends on `webrtc-audio-processing` (bundled), whose build
+script compiles vendored C++ with **`meson` + `ninja`** — both must be on `PATH` for
+every build, including `bun run app`. Install once (e.g. `brew install meson ninja`, or
+`pip install meson ninja` and symlink into `/usr/local/bin`). The release bundle also
+needs `MACOSX_DEPLOYMENT_TARGET=15.0` (the same macOS 10.15+ floor `std::filesystem` in
+ggml/webrtc requires) — `scripts/update-app.sh` sets it and checks for meson/ninja;
+`tauri.conf.json` pins `minimumSystemVersion` to match. Dev builds inherit the SDK's
+default target, so they only need meson/ninja.
+
 ## Layout
 
 ```

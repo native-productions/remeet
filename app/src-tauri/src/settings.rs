@@ -90,12 +90,16 @@ impl Default for WhisperBuiltinConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// Which CLI handles language work (summaries today, more later).
+    /// Which provider handles language work (summaries today, more later). Either a
+    /// local CLI or a key-based API — see `remeet_ai::ProviderId`.
     pub provider: ProviderId,
-    /// Per-provider binary path and model, kept separately so switching providers
-    /// does not discard the other one's setup.
+    /// Per-provider config, kept in its own slot so switching providers does not
+    /// discard another one's setup (a CLI's binary path, an API's key).
     pub claude_code: ProviderConfig,
     pub codex: ProviderConfig,
+    pub gemini: ProviderConfig,
+    pub openai: ProviderConfig,
+    pub custom: ProviderConfig,
     /// Space the next recording is filed into, or `None` for the default space.
     ///
     /// Sticky on purpose: someone recording a day of calls for one client sets it
@@ -128,6 +132,9 @@ impl Default for Settings {
             provider: ProviderId::ClaudeCode,
             claude_code: ProviderConfig::new(ProviderId::ClaudeCode),
             codex: ProviderConfig::new(ProviderId::Codex),
+            gemini: ProviderConfig::new(ProviderId::Gemini),
+            openai: ProviderConfig::new(ProviderId::Openai),
+            custom: ProviderConfig::new(ProviderId::Custom),
             active_space: None,
             call_reminder: true,
             transcribe_speed: TranscribeSpeed::default(),
@@ -147,6 +154,9 @@ impl Settings {
         let mut config = match id {
             ProviderId::ClaudeCode => self.claude_code.clone(),
             ProviderId::Codex => self.codex.clone(),
+            ProviderId::Gemini => self.gemini.clone(),
+            ProviderId::Openai => self.openai.clone(),
+            ProviderId::Custom => self.custom.clone(),
         };
         config.id = id;
         config

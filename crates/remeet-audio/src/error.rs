@@ -19,6 +19,11 @@ pub enum AudioError {
     #[error("channel plane lengths differ: {0:?}")]
     RaggedPlanes(Vec<usize>),
 
+    /// Voice-processing microphone capture (AVAudioEngine VPIO) could not start —
+    /// usually Microphone permission denied, or no input device available.
+    #[error("voice-processing mic: {0}")]
+    Vpio(String),
+
     #[error("wav: {0}")]
     Wav(#[from] hound::Error),
 

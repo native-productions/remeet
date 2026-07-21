@@ -28,6 +28,7 @@
 //! # }
 //! ```
 
+mod aec_pass;
 mod error;
 mod mixdown;
 mod recorder;
@@ -38,6 +39,7 @@ use std::time::Duration;
 
 use remeet_audio::Track;
 
+pub use aec_pass::apply as apply_echo_cancellation;
 pub use error::{Result, SessionError};
 pub use mixdown::{MIXDOWN_WAV, mixdown};
 pub use recorder::Recorder;

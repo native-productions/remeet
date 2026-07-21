@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 remeet-audio.workspace = true
 remeet-transcribe.workspace = true
+remeet-aec.workspace = true
 
 crossbeam-channel.workspace = true
 hound.workspace = true

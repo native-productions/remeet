@@ -45,7 +45,8 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$HOME/Remeet/recordings/**"
+          "$HOME/Remeet/recordings/**",
+          "$HOME/Remeet-dev/recordings/**"
         ]
       }
     }
@@ -55,6 +56,9 @@
     "targets": [
       "app"
     ],
+    "macOS": {
+      "minimumSystemVersion": "15.0"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

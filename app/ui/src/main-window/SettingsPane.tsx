@@ -3,7 +3,12 @@ import { useEffect, useState } from "react";
 import {
   api,
   errorText,
+  MODEL_OTHER,
   PROVIDERS,
+  providerCategory,
+  providerKey,
+  type ProviderCategory,
+  type ProviderConfig,
   type Probe,
   type ProviderId,
   type Settings,
@@ -29,6 +34,9 @@ export function SettingsPane() {
   const [probes, setProbes] = useState<Partial<Record<ProviderId, Probe>>>({});
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [path, setPath] = useState("");
+  // "Other…" picked in the model dropdown: reveals the free-text input for a model
+  // not in the curated list. Reset on provider change so it never carries over.
+  const [modelIsOther, setModelIsOther] = useState(false);
   const appInfo = useAppInfo();
 
   useEffect(() => {
@@ -51,6 +59,12 @@ export function SettingsPane() {
     })();
   }, []);
 
+  // Switching provider clears the manual-model flag; the new provider's saved model
+  // decides afresh whether the free-text input shows.
+  useEffect(() => {
+    setModelIsOther(false);
+  }, [settings?.provider]);
+
   if (!settings) return <section className="pane" />;
 
   // Settings are small and written on every edit: there is no Save button to
@@ -62,13 +76,34 @@ export function SettingsPane() {
   };
 
   const active = settings.provider;
-  const config = active === "codex" ? settings.codex : settings.claude_code;
-  const setConfig = (patch: Partial<typeof config>) =>
-    update(
-      active === "codex"
-        ? { ...settings, codex: { ...settings.codex, ...patch } }
-        : { ...settings, claude_code: { ...settings.claude_code, ...patch } },
-    );
+  const activeCategory = providerCategory(active);
+  const meta = PROVIDERS.find((p) => p.id === active)!;
+  const configKey = providerKey(active);
+  const config = settings[configKey] as ProviderConfig;
+  const setConfig = (patch: Partial<ProviderConfig>) =>
+    update({ ...settings, [configKey]: { ...config, ...patch } });
+
+  // A saved model that is not in the curated list also counts as manual entry, so
+  // an existing off-list choice shows in the text input rather than vanishing.
+  const model = config.model ?? "";
+  const modelOffList = model !== "" && !meta.models.includes(model);
+  const modelManual = modelIsOther || modelOffList;
+  const onModelSelect = (value: string) => {
+    if (value === MODEL_OTHER) {
+      setModelIsOther(true);
+      return;
+    }
+    setModelIsOther(false);
+    setConfig({ model: value || null });
+  };
+
+  // Switching family selects that family's first provider, so the model/key fields
+  // below always have a concrete provider to edit.
+  const setMode = (mode: ProviderCategory) => {
+    if (mode === activeCategory) return;
+    const first = PROVIDERS.find((p) => p.category === mode);
+    if (first) update({ ...settings, provider: first.id });
+  };
 
   const runTest = async () => {
     setTest({ kind: "running" });
@@ -304,14 +339,49 @@ export function SettingsPane() {
         <section className="field">
           <h2 className="field-head">AI provider</h2>
           <p className="field-hint">
-            Used for summaries, and for action items as they land. Runs the CLI
-            already installed and logged in on this Mac — no API key, and audio never
-            leaves the machine.
+            Used for summaries, and for action items as they land. Use a local CLI
+            already logged in on this Mac — no key, nothing leaves the machine — or an
+            API key for Gemini, OpenAI, or any OpenAI-compatible local model.
           </p>
 
           <div className="choices">
-            {PROVIDERS.map((p) => {
+            {(
+              [
+                { id: "cli", label: "Local CLI", sub: "Claude Code or Codex — no key" },
+                { id: "api", label: "API key", sub: "Gemini, OpenAI, or custom" },
+              ] as const
+            ).map((m) => (
+              <label
+                key={m.id}
+                className={`choice${activeCategory === m.id ? " is-active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="provider_mode"
+                  checked={activeCategory === m.id}
+                  onChange={() => setMode(m.id)}
+                />
+                <span className="choice-main">
+                  <span className="choice-label">{m.label}</span>
+                  <span className="choice-sub">{m.sub}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="choices" style={{ marginTop: "12px" }}>
+            {PROVIDERS.filter((p) => p.category === activeCategory).map((p) => {
               const probe = probes[p.id];
+              const sub =
+                probe === undefined
+                  ? "checking…"
+                  : p.category === "cli"
+                    ? probe.installed
+                      ? (probe.version ?? "installed")
+                      : "not found — install it, or set a path below"
+                    : probe.installed
+                      ? (probe.version ?? "configured")
+                      : (probe.error ?? "not configured");
               return (
                 <label
                   key={p.id}
@@ -325,13 +395,7 @@ export function SettingsPane() {
                   />
                   <span className="choice-main">
                     <span className="choice-label">{p.label}</span>
-                    <span className="choice-sub">
-                      {probe === undefined
-                        ? "checking…"
-                        : probe.installed
-                          ? (probe.version ?? "installed")
-                          : `not found — install it, or set a path below`}
-                    </span>
+                    <span className="choice-sub">{sub}</span>
                   </span>
                 </label>
               );
@@ -342,41 +406,102 @@ export function SettingsPane() {
         <section className="field">
           <h2 className="field-head">Model</h2>
           <p className="field-hint">
-            Leave empty to use whatever the CLI is configured to use. Which models
-            are allowed depends on the account behind the CLI, so this is free text —
-            the test below reports what it actually says.
+            {activeCategory === "cli"
+              ? "Pick a model, or Provider default to use whatever the CLI is set to. The list is common choices — pick Other to type an exact name your account allows."
+              : "Pick the model to request. The list is common choices — pick Other to type an exact name your key or server allows. Required for API providers."}
           </p>
-          <input
+          <select
             className="input"
-            type="text"
-            spellCheck={false}
-            placeholder={active === "codex" ? "e.g. gpt-5.5" : "e.g. sonnet"}
-            value={config.model ?? ""}
-            onChange={(e) => setConfig({ model: e.target.value.trim() || null })}
-          />
+            value={modelManual ? MODEL_OTHER : model}
+            onChange={(e) => onModelSelect(e.target.value)}
+          >
+            <option value="">
+              {activeCategory === "cli" ? "Provider default" : "Select a model…"}
+            </option>
+            {meta.models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+            <option value={MODEL_OTHER}>Other…</option>
+          </select>
+          {modelManual && (
+            <input
+              className="input"
+              type="text"
+              spellCheck={false}
+              autoFocus
+              style={{ marginTop: "8px" }}
+              placeholder={meta.modelHint}
+              value={config.model ?? ""}
+              onChange={(e) => setConfig({ model: e.target.value.trim() || null })}
+            />
+          )}
         </section>
 
-        <section className="field">
-          <h2 className="field-head">Binary path</h2>
-          <p className="field-hint">
-            Empty means <code>{PROVIDERS.find((p) => p.id === active)?.bin}</code> on
-            your PATH. Set a full path if the app cannot find it.
-          </p>
-          <input
-            className="input"
-            type="text"
-            spellCheck={false}
-            placeholder={`/usr/local/bin/${PROVIDERS.find((p) => p.id === active)?.bin}`}
-            value={config.bin ?? ""}
-            onChange={(e) => setConfig({ bin: e.target.value.trim() || null })}
-          />
-        </section>
+        {activeCategory === "cli" && (
+          <section className="field">
+            <h2 className="field-head">Binary path</h2>
+            <p className="field-hint">
+              Empty means <code>{PROVIDERS.find((p) => p.id === active)?.bin}</code> on
+              your PATH. Set a full path if the app cannot find it.
+            </p>
+            <input
+              className="input"
+              type="text"
+              spellCheck={false}
+              placeholder={`/usr/local/bin/${PROVIDERS.find((p) => p.id === active)?.bin}`}
+              value={config.bin ?? ""}
+              onChange={(e) => setConfig({ bin: e.target.value.trim() || null })}
+            />
+          </section>
+        )}
+
+        {activeCategory === "api" && (
+          <section className="field">
+            <h2 className="field-head">API key</h2>
+            <p className="field-hint">
+              Stored in plain text in this app's settings file.{" "}
+              {active === "custom"
+                ? "Leave empty if your local server needs no key."
+                : "Get one from your provider's console."}
+            </p>
+            <input
+              className="input"
+              type="password"
+              spellCheck={false}
+              autoComplete="off"
+              placeholder={active === "custom" ? "optional" : "paste your API key"}
+              value={config.api_key ?? ""}
+              onChange={(e) => setConfig({ api_key: e.target.value.trim() || null })}
+            />
+          </section>
+        )}
+
+        {active === "custom" && (
+          <section className="field">
+            <h2 className="field-head">Base URL</h2>
+            <p className="field-hint">
+              Your OpenAI-compatible endpoint. Ollama:{" "}
+              <code>http://localhost:11434/v1</code>. LM Studio:{" "}
+              <code>http://localhost:1234/v1</code>.
+            </p>
+            <input
+              className="input"
+              type="text"
+              spellCheck={false}
+              placeholder="http://localhost:11434/v1"
+              value={config.base_url ?? ""}
+              onChange={(e) => setConfig({ base_url: e.target.value.trim() || null })}
+            />
+          </section>
+        )}
 
         <section className="field">
           <h2 className="field-head">Test</h2>
           <p className="field-hint">
-            Sends one tiny prompt through the CLI. This is the only way to know it is
-            logged in and the model is allowed — and it does spend tokens.
+            Sends one tiny prompt through the provider. This is the only way to know
+            it is reachable and the model is allowed — and it does spend tokens.
           </p>
           <div className="test-row">
             <button

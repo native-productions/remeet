@@ -53,6 +53,21 @@ impl WavSink {
         Ok(())
     }
 
+    /// Writes `frames` sample-frames of silence.
+    ///
+    /// Used as a track's lead-in: the two capture engines (ScreenCaptureKit for
+    /// system, voice processing for mic) do not start on the same instant, so each
+    /// track is padded by the gap between recording start and its own first frame.
+    /// That puts both files on one shared timeline, which is what lets the mixdown
+    /// and per-speaker transcript line the sides up.
+    pub fn write_silence(&mut self, frames: usize) -> Result<()> {
+        for _ in 0..frames * self.channels as usize {
+            self.writer.write_sample(0i16)?;
+        }
+        self.frames_written += frames as u64;
+        Ok(())
+    }
+
     pub fn frames_written(&self) -> u64 {
         self.frames_written
     }

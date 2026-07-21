@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use remeet_ai::{Probe, ProviderId, Summary};
 use remeet_session::{
-    LiveSegment, Recorder, Recording, Speaker, Transcript, TranscriptLine, mixdown,
-    transcribe_recording_streaming,
+    LiveSegment, Recorder, Recording, Speaker, Transcript, TranscriptLine,
+    apply_echo_cancellation, mixdown, transcribe_recording_streaming,
 };
 use remeet_transcribe::{DecodeOptions, Transcriber};
 use serde::Serialize;
@@ -219,6 +219,20 @@ pub async fn stop_recording(state: State<'_, AppState>) -> Result<RecordingDto, 
 
     let recording = active.recorder.stop().await.map_err(|e| e.to_string())?;
     let id = dir_id(&recording.dir);
+
+    // Cancel the mic's speaker bleed off the stop path: it processes the whole recording
+    // (a couple of seconds), which would freeze the Stop button if done inline while the
+    // session lock is held. The transcript and playback paths run the same pass
+    // idempotently before they read the mic, so a race with this task is safe.
+    let aec_dir = recording.dir.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Err(err) = apply_echo_cancellation(&aec_dir) {
+                eprintln!("background echo cancellation failed: {err}");
+            }
+        })
+        .await;
+    });
     let duration_secs = recording
         .tracks
         .iter()

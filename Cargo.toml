@@ -4,6 +4,7 @@ members = [
     "crates/remeet-audio",
     "crates/remeet-transcribe",
     "crates/remeet-ai",
+    "crates/remeet-aec",
     "crates/remeet-todo",
     "crates/remeet-session",
     "app/src-tauri",
@@ -22,8 +23,14 @@ license = "MIT"
 remeet-audio = { path = "crates/remeet-audio" }
 remeet-transcribe = { path = "crates/remeet-transcribe" }
 remeet-ai = { path = "crates/remeet-ai" }
+remeet-aec = { path = "crates/remeet-aec" }
 remeet-todo = { path = "crates/remeet-todo" }
 remeet-session = { path = "crates/remeet-session" }
+
+# WebRTC AudioProcessing (AEC3) for cancelling the remote's speaker bleed out of the
+# mic. `bundled` compiles the vendored C++ — needs `meson` + `ninja` on PATH at build
+# time (and MACOSX_DEPLOYMENT_TARGET=15.0, see the note in tauri.conf.json).
+webrtc-audio-processing = { version = "2.1", features = ["bundled"] }
 
 anyhow = "1"
 crossbeam-channel = "0.5"
@@ -32,6 +39,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"
+
+# HTTP for the API-key providers (Gemini, OpenAI, OpenAI-compatible local models).
+# Blocking client to match the CLI providers' synchronous shape — callers already
+# wrap providers in `spawn_blocking`. rustls so no system OpenSSL is required.
+reqwest = { version = "0.13", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls",
+] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 # Whisper transcription. `metal` compiles whisper.cpp with the Metal backend, so
@@ -59,6 +75,8 @@ cidre = { version = "0.16", default-features = false, features = [
     "av",
     "macos_15_0",
     "async",
+    # CoreAudio device enumeration + default-input selection for the VPIO mic path.
+    "core_audio",
 ] }
 
 [profile.release]

@@ -8,6 +8,16 @@ use crate::error::{AudioError, Result};
 /// Matches what [`crate::capture`] requests.
 const FALLBACK_SAMPLE_RATE: u32 = 48_000;
 
+/// The host clock's current time as a `Duration`.
+///
+/// This is the one time base both capture engines agree on: ScreenCaptureKit stamps
+/// its audio PTS with it, and an AVAudioTime host time converts onto it. Captured
+/// once at the start of a recording, it is the origin every track's lead-in is
+/// measured from.
+pub fn host_now() -> Duration {
+    Duration::from_secs_f64(cm::Clock::host_time_clock().time().as_secs())
+}
+
 /// Which side of the conversation a frame came from.
 ///
 /// Kept as two tracks rather than one mix: the split is free (ScreenCaptureKit

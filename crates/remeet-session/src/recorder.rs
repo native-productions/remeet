@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError};
-use remeet_audio::{AudioFrame, DualCapture, Track, WavSink};
+use remeet_audio::{AudioFrame, DualCapture, Track, WavSink, host_now};
 use tokio::task::JoinHandle;
 
 use crate::error::{Result, SessionError};
@@ -45,6 +45,12 @@ impl Recorder {
         std::fs::create_dir_all(&dir)?;
 
         let (tx, rx) = crossbeam_channel::unbounded::<AudioFrame>();
+
+        // Origin for every track's lead-in, captured before capture starts so both
+        // tracks' first frames land at or after it. The two tracks share the stream
+        // clock, so the difference between their first pts is the real start offset —
+        // the mic's first frame commonly arrives a beat after the system's.
+        let t0 = host_now();
         let capture = DualCapture::start(tx).await?;
 
         let running = Arc::new(AtomicBool::new(true));
@@ -54,7 +60,7 @@ impl Recorder {
             let paused = Arc::clone(&paused);
             let dir = dir.clone();
             // Writing WAVs blocks, so the collector runs off the async worker pool.
-            tokio::task::spawn_blocking(move || collect(rx, &dir, &running, &paused))
+            tokio::task::spawn_blocking(move || collect(rx, &dir, &running, &paused, t0))
         };
 
         Ok(Self {
@@ -117,6 +123,12 @@ impl Recorder {
         // Deterministic order regardless of which track produced its first frame first.
         tracks.sort_by_key(|t| t.track.as_str());
 
+        // The mic's echo cancellation is deliberately NOT run here: it processes the
+        // whole recording and would stall `stop` (and this call holds the session lock),
+        // making the Stop button appear dead. It runs off the stop path instead — see
+        // [`apply_echo_cancellation`](crate::apply_echo_cancellation), which the app
+        // kicks off in the background and which the transcript/mixdown paths also call
+        // (idempotently) before they read the mic.
         Ok(Recording {
             dir: self.dir,
             tracks,
@@ -134,6 +146,7 @@ fn collect(
     dir: &Path,
     running: &AtomicBool,
     paused: &AtomicBool,
+    t0: Duration,
 ) -> Result<HashMap<Track, OpenTrack>> {
     let mut open: HashMap<Track, OpenTrack> = HashMap::new();
 
@@ -142,7 +155,7 @@ fn collect(
             // While paused the frame is still received and then dropped, so the
             // channel keeps draining rather than backing up until resume.
             Ok(frame) if paused.load(Ordering::Acquire) => drop(frame),
-            Ok(frame) => route(&mut open, dir, frame)?,
+            Ok(frame) => route(&mut open, dir, frame, t0)?,
             Err(RecvTimeoutError::Timeout) => continue,
             // The capture side dropped its sender — nothing more will ever arrive.
             Err(RecvTimeoutError::Disconnected) => break,
@@ -155,11 +168,16 @@ fn collect(
         if paused.load(Ordering::Acquire) {
             continue;
         }
-        route(&mut open, dir, frame)?;
+        route(&mut open, dir, frame, t0)?;
     }
 
     Ok(open)
 }
+
+/// Longest lead-in silence a track may be padded with. A frame timestamp far ahead of
+/// the recording start is a bad clock reading, not a real offset — cap it so one bogus
+/// pts cannot write gigabytes of silence.
+const MAX_LEAD: Duration = Duration::from_secs(10);
 
 /// Appends a frame to its track's file, opening the file on first sight of the track.
 ///
@@ -167,12 +185,27 @@ fn collect(
 /// real frame arrives, so files open lazily. A mid-stream format change (never
 /// observed in practice) skips the odd frame rather than aborting the whole
 /// recording — losing a meeting to one bad buffer would be the worse failure.
-fn route(open: &mut HashMap<Track, OpenTrack>, dir: &Path, frame: AudioFrame) -> Result<()> {
+fn route(
+    open: &mut HashMap<Track, OpenTrack>,
+    dir: &Path,
+    frame: AudioFrame,
+    t0: Duration,
+) -> Result<()> {
     let track = match open.entry(frame.track) {
         Entry::Occupied(entry) => entry.into_mut(),
         Entry::Vacant(entry) => {
             let path = dir.join(format!("{}.wav", frame.track.as_str()));
-            let sink = WavSink::create(&path, frame.sample_rate, frame.channels)?;
+            let mut sink = WavSink::create(&path, frame.sample_rate, frame.channels)?;
+
+            // Pad the gap between recording start and this track's first frame, so all
+            // tracks share one timeline. An invalid pts subtracts to zero (no lead);
+            // an implausibly large one is ignored rather than trusted.
+            let lead = frame.pts.checked_sub(t0).unwrap_or_default();
+            if lead > Duration::ZERO && lead <= MAX_LEAD {
+                let silent_frames = (lead.as_secs_f64() * frame.sample_rate as f64).round() as usize;
+                sink.write_silence(silent_frames)?;
+            }
+
             entry.insert(OpenTrack { path, sink })
         }
     };

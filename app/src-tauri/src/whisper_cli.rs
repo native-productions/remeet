@@ -66,6 +66,7 @@ where
         // makes them stream as they are printed, which is the whole point of reading
         // them live below.
         .env("PYTHONUNBUFFERED", "1")
+        .env("PATH", child_path(bin))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(language) = language {
@@ -134,6 +135,33 @@ where
             })
         })
         .collect())
+}
+
+/// The `PATH` handed to the whisper child.
+///
+/// openai-whisper shells out to `ffmpeg` (by bare name) to decode the audio. A GUI
+/// app launched from Finder inherits only the minimal launchd `PATH`
+/// (`/usr/bin:/bin:/usr/sbin:/sbin`), so a Homebrew `ffmpeg` — the usual install —
+/// is invisible and the decode fails. Prepend the common install dirs, plus the
+/// whisper binary's own directory (its venv often has a sibling `ffmpeg`), ahead of
+/// whatever `PATH` we were given, so the child resolves tools the way a terminal run
+/// would. Order matters only for shadowing; prepending is safe.
+fn child_path(bin: &str) -> String {
+    let mut dirs: Vec<String> = vec!["/opt/homebrew/bin".into(), "/usr/local/bin".into()];
+
+    if let Some(parent) = Path::new(bin).parent()
+        && !parent.as_os_str().is_empty()
+    {
+        dirs.push(parent.display().to_string());
+    }
+
+    if let Ok(existing) = std::env::var("PATH")
+        && !existing.is_empty()
+    {
+        dirs.push(existing);
+    }
+
+    dirs.join(":")
 }
 
 /// Parses one whisper verbose line, `[mm:ss.sss --> mm:ss.sss] text`, into a segment.

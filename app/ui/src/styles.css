@@ -996,8 +996,26 @@ body[data-window="popover"] {
   margin-left: 0;
 }
 
-.is-loading .play {
-  opacity: 0.6;
+/* While the playback mix is being built (and the mic echo-cancelled on first play,
+   which can take a few seconds on a long recording), the button shows a spinner so the
+   wait reads as work in progress rather than a dead control. */
+.play:disabled {
+  cursor: progress;
+}
+
+.play-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--on-accent) 35%, transparent);
+  border-top-color: var(--on-accent);
+  animation: play-spin 0.7s linear infinite;
+}
+
+@keyframes play-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .is-error .play {

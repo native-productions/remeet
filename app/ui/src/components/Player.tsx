@@ -16,10 +16,16 @@ export function Player({ player }: { player: PlayerState }) {
       <button
         className="play"
         type="button"
-        aria-label={playing ? "Pause" : "Play"}
+        disabled={loading}
+        aria-busy={loading}
+        aria-label={loading ? "Preparing audio…" : playing ? "Pause" : "Play"}
         onClick={() => void player.toggle()}
       >
-        <span className="play-icon" aria-hidden="true" />
+        {loading ? (
+          <span className="play-spinner" aria-hidden="true" />
+        ) : (
+          <span className="play-icon" aria-hidden="true" />
+        )}
       </button>
 
       <input

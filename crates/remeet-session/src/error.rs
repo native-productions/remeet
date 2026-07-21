@@ -14,6 +14,9 @@ pub enum SessionError {
     #[error("writing wav: {0}")]
     WavWrite(#[from] hound::Error),
 
+    #[error("echo cancellation: {0}")]
+    Aec(String),
+
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 
